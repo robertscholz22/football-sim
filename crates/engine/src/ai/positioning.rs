@@ -288,9 +288,12 @@ pub fn decide(state: &MatchState, cfg: &SimConfig, id: PlayerId, rng: &mut SimRn
         mv.chose = !mv.moving || movement::rechoose(state, cfg, p);
         defend(state, cfg, id, anchor_t, rng, &mut mv);
     }
-    // Pacing (M6): nobody jogs in a transition. On the counter the runners go forward at speed (TR-01, TR-03); the
-    // team that lost the ball counter-presses or recovers into shape at once (TRN-01..03).
-    if matches!(b.phase, TeamPhase::In(InPhase::CounterAttack) | TeamPhase::Out(OutPhase::CounterPress | OutPhase::Recovery)) {
+    // Pacing (M6): on the counter the runners go forward at speed (TR-01, TR-03); the team that lost the ball
+    // counter-presses or recovers at once (TRN-01..03), but only "players far from or behind the ball run back"
+    // [FIFA-TD]: those make recovery runs (IND-06), and the block gets into shape at a run, as the team in possession
+    // does (watch round).
+    let shape = !b.in_possession && b.def_duties[p.slot] == DefDuty::Shape;
+    if matches!(b.phase, TeamPhase::In(InPhase::CounterAttack) | TeamPhase::Out(OutPhase::CounterPress | OutPhase::Recovery)) && !shape {
         mv.pace_s = 0.0;
     }
     mv.target = clamp_to_pitch(mv.target, 0.3);

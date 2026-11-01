@@ -35,14 +35,18 @@ pub fn situation_for(seed: u64, side: Side, carrier_role: Role, ball: Vec2) -> (
 
 /// The bundled squads in formations `home` and `away` (`team::FORMATIONS`), live play.
 pub fn with_formations(seed: u64, home: &str, away: &str) -> Scenario {
-    use match_engine::config::SimConfig;
+    with_formations_config(seed, home, away, match_engine::config::SimConfig::default())
+}
+
+/// As `with_formations`, with configuration `cfg`.
+pub fn with_formations_config(seed: u64, home: &str, away: &str, cfg: match_engine::config::SimConfig) -> Scenario {
     use match_engine::match_state::PlayPhase;
     use match_engine::pitch::PitchConditions;
     use match_engine::team::TeamData;
     let mut h = TeamData::builtin("northbridge").unwrap();
     let mut a = TeamData::builtin("harbour").unwrap();
     (h.formation, a.formation) = (home.to_string(), away.to_string());
-    let mut sim = match_engine::Simulation::new(&h, &a, SimConfig::default(), PitchConditions::default(), seed);
+    let mut sim = match_engine::Simulation::new(&h, &a, cfg, PitchConditions::default(), seed);
     sim.state.phase = PlayPhase::Live;
     Scenario { sim }
 }

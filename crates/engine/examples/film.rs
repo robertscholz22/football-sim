@@ -1,13 +1,16 @@
 //! Record a match for offline viewing: one JSON line per frame (world frame: positions, velocities, targets, labels,
 //! ball, phases) and one per event, after a header with the squads.
-//! `cargo run -p match_engine --release --example film -- [seed] [out.jsonl] [interval_s]`
+//! `cargo run -p match_engine --release --example film -- [seed] [out.jsonl] [interval_s] [config.ron]` (the RON
+//! holds `SimConfig` overrides, as for `match_lab --config`).
 
 use std::fmt::Write as _;
 use std::io::Write as _;
 
-use match_engine::Simulation;
+use match_engine::config::SimConfig;
 use match_engine::match_state::PlayPhase;
-use match_engine::pitch::Side;
+use match_engine::pitch::{PitchConditions, Side};
+use match_engine::Simulation;
+use match_engine::team::TeamData;
 
 fn esc(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
@@ -18,7 +21,11 @@ fn main() {
     let seed: u64 = args.next().and_then(|s| s.parse().ok()).unwrap_or(1);
     let out = args.next().unwrap_or_else(|| format!("film_{seed}.jsonl"));
     let every: f32 = args.next().and_then(|s| s.parse().ok()).unwrap_or(0.2);
-    let mut sim = Simulation::from_builtin("northbridge", "harbour", seed);
+    let cfg = args.next().map_or_else(SimConfig::default, |p| {
+        SimConfig::from_ron(&std::fs::read_to_string(&p).expect("read config")).expect("parse config")
+    });
+    let (home, away) = (TeamData::builtin("northbridge").expect("squad"), TeamData::builtin("harbour").expect("squad"));
+    let mut sim = Simulation::new(&home, &away, cfg, PitchConditions::default(), seed);
     let mut f = std::io::BufWriter::new(std::fs::File::create(&out).expect("create output"));
 
     let st = &sim.state;
@@ -90,7 +97,7 @@ fn main() {
         for (i, p) in st.players.iter().enumerate() {
             write!(
                 line,
-                "{}[{:.2},{:.2},{:.2},{:.2},{:.1},{:.1},{},\"{}\"]",
+                "{}[{:.2},{:.2},{:.2},{:.2},{:.1},{:.1},{},\"{}\",{:.1},{:.1}]",
                 if i > 0 { "," } else { "" },
                 p.pos.x,
                 p.pos.y,
@@ -99,7 +106,9 @@ fn main() {
                 p.target.x,
                 p.target.y,
                 u8::from(p.sent_off),
-                esc(&p.debug.label)
+                esc(&p.debug.label),
+                p.debug.anchor.x,
+                p.debug.anchor.y
             )
             .unwrap();
         }

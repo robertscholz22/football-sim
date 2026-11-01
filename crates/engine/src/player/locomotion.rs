@@ -19,7 +19,9 @@ pub fn desired_velocity(p: &Player) -> Vec2 {
     let to = p.target - p.pos;
     let d = to.length();
     let paced = p.pace_s > 0.0 && p.intent == Intent::Position;
-    let max = (p.kin.top_speed * p.urgency.clamp(0.05, 1.0)).min(if paced { p.pace_speed } else { f32::MAX });
+    // A paced movement runs at `pace_speed` while the gap is large and closes the rest in its pace time (M6, watch
+    // round): its speed comes from the gap, not from the urgency.
+    let max = if paced { p.kin.top_speed.min(p.pace_speed) } else { p.kin.top_speed * p.urgency.clamp(0.05, 1.0) };
     if d < 0.05 {
         return p.target_vel.clamp_length_max(max);
     }

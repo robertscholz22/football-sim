@@ -23,7 +23,7 @@ use match_engine::scenario::Scenario;
 use match_engine::team::{Movement, Role, TeamInstructions, Unit, resolve};
 
 mod common;
-use common::{AWAY, high_ball, home_frame, situation, situation_for, slot_of};
+use common::{AWAY, high_ball, home_frame, situation, slot_of};
 
 fn decide(sc: &Scenario, id: PlayerId, seed: u64) -> positioning::Move {
     positioning::decide(&sc.sim.state, &sc.sim.cfg, id, &mut SimRng::new(seed))
@@ -685,7 +685,7 @@ fn blk02_the_line_leader_calls_a_step_only_once_the_pressure_holds() {
 /// Phase D front-line scenario: the home right centre-mid on the ball at `ball` (home frame), facing forward, after
 /// the in-possession block has reached the line. Returns (scenario, carrier, centre-forward).
 fn front(seed: u64, ball: Vec2) -> (Scenario, PlayerId, PlayerId) {
-    let (mut sc, carrier) = situation(seed, Role::CM8, ball);
+    let (mut sc, carrier) = common::settled(Scenario::with_config(seed, built_line()), Side::Home, Role::CM8, ball);
     for _ in 0..30 {
         sc.sim.state.time += 0.2;
         sc.think();
@@ -696,6 +696,16 @@ fn front(seed: u64, ball: Vec2) -> (Scenario, PlayerId, PlayerId) {
     sc.think();
     let cf = slot_of(&sc, Side::Home, Role::CF);
     (sc, carrier, cf)
+}
+
+/// The front-line scenarios (ATT-18, ATT-26, look-ahead) were built with the opponents' mid-block line at 32.5 m from
+/// goal (`blk05_line_mid` −20 before the watch round). At the sourced 37.5 m (BLK-05) the 5 m more behind the line make
+/// an open carrier's run in behind worth more than every other front movement and give a second runner a lane of his
+/// own 8 m away (docs/design.md, "Watch round", set A); these tests are about the choices at the geometry they set.
+fn built_line() -> SimConfig {
+    let mut cfg = SimConfig::default();
+    cfg.tactics.blk05_line_mid = -20.0;
+    cfg
 }
 
 /// The keeper defending against `attacking` at his GK-01 depth for the ball at `ball` (attacking frame): a keeper's
@@ -845,7 +855,7 @@ fn att26_forward_runs_and_come_short_instructions_change_the_choice() {
 fn att26_when_one_striker_comes_short_the_other_holds_the_depth() {
     // Away 4-4-2 on the ball: two strikers [DFB-RP16: "Wenn ein Stürmer sich anbietet, sichert der andere die Tiefe"];
     // section 8.3: a second offer to feet adds little once a team-mate shows.
-    let (mut sc, carrier) = situation_for(25, Side::Away, Role::CMP, Vec2::new(0.0, 6.0));
+    let (mut sc, carrier) = common::settled(Scenario::with_config(25, built_line()), Side::Away, Role::CMP, Vec2::new(0.0, 6.0));
     for _ in 0..30 {
         sc.sim.state.time += 0.2;
         sc.think();
@@ -923,7 +933,8 @@ fn hold_movement(sc: &mut Scenario, id: PlayerId, kind: Movement) {
 fn att26_the_ten_does_not_copy_the_strikers_run_and_offers_between_the_lines_it_opens() {
     // Test 5 [BDFL-HALE]: the striker's run in depth pulls the back line away and the 10 offers in the space between
     // the lines; he must not "identisch mit dem Laufverhalten der Spitze immer den Weg in die Tiefe" suchen.
-    let (mut sc, carrier) = common::settled(common::with_formations(51, "4-2-3-1", "4-4-2"), Side::Home, Role::CMP, Vec2::new(-5.0, -6.0));
+    let (mut sc, carrier) =
+        common::settled(common::with_formations_config(51, "4-2-3-1", "4-4-2", built_line()), Side::Home, Role::CMP, Vec2::new(-5.0, -6.0));
     for _ in 0..30 {
         sc.sim.state.time += 0.2;
         sc.think();

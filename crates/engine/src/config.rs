@@ -611,7 +611,7 @@ impl Default for TacticsConfig {
             blk02_call_hold_s: 0.4,
             blk04_min_flight_s: 0.8,
             blk05_line_high: 2.0,
-            blk05_line_mid: -20.0,
+            blk05_line_mid: -15.0,
             blk05_line_low: -35.0,
             blk05_press_zone_high: 52.5,
             blk05_press_zone_mid: 15.0,
@@ -994,7 +994,8 @@ pub struct AiConfig {
     /// `pace_ball_speed` (m/s). Longer by
     /// `pace_fatigue` · (1 − energy), and by `pace_work_rate` · (0.5 − work rate). Calibrated: high-intensity running
     /// (> 19.8 km/h) ≈ 530–980 m per player and match in 30–45 efforts of ≈ 20 m [JU23], total distance ≈ 10.6–11.4 km
-    /// [DISALVO07]; × 1.48 for the time in play.
+    /// [DISALVO07]. Per 90 minutes in play ≈ 13–13.6 km, not × 1.48: the in-play rate is about twice the out-of-play
+    /// one [JEROME23], 10.94 km of which in 57.5 minutes in play [ALTMANN23].
     pub pace_position_s: f32,
     pub pace_cover_s: f32,
     pub pace_mark_s: f32,

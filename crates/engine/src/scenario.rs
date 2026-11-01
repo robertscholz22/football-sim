@@ -5,10 +5,10 @@ use glam::Vec2;
 use crate::ball::Ball;
 use crate::config::SimConfig;
 use crate::match_state::{PLAYERS_PER_TEAM, PlayPhase};
-use crate::pitch::Side;
+use crate::pitch::{PitchConditions, Side};
 use crate::player::{Attributes, Intent, Kinematics, Player, PlayerId};
 use crate::sim::Simulation;
-use crate::team::{PlayerInstructions, Role};
+use crate::team::{PlayerInstructions, Role, TeamData};
 
 /// A stand-alone player with the given attributes, at rest at the origin.
 pub fn make_player(id: PlayerId, side: Side, attrs: Attributes, cfg: &SimConfig) -> Player {
@@ -25,7 +25,14 @@ pub struct Scenario {
 impl Scenario {
     /// Bundled squads, live play, both teams in their kick-off positions.
     pub fn new(seed: u64) -> Self {
-        let mut sim = Simulation::from_builtin("northbridge", "harbour", seed);
+        Self::with_config(seed, SimConfig::default())
+    }
+
+    /// As `new`, with configuration `cfg` (the players start where it puts them).
+    pub fn with_config(seed: u64, cfg: SimConfig) -> Self {
+        let home = TeamData::builtin("northbridge").expect("bundled squad");
+        let away = TeamData::builtin("harbour").expect("bundled squad");
+        let mut sim = Simulation::new(&home, &away, cfg, PitchConditions::default(), seed);
         sim.state.phase = PlayPhase::Live;
         Self { sim }
     }

@@ -2579,6 +2579,48 @@ depth); (B) pressure: a second presser only if the more compact block does not b
 fouls high up; (C) contacts: clearance and deflection outcomes from the contact physics, not a restart bias; (D)
 keepers at close range; T and F re-measured after A–C.
 
+**Set A: block line and shape speed.** Films first (`examples/film` now takes a RON of `SimConfig` overrides and
+records each player's anchor):
+
+- The wide players' lag in possession is a transition lag, not churn. At the regain their in-possession spots are
+  15–20 m ahead (winger target − position along the pitch: 20.6 m in the first 3 s, 14.5 m at 3–8 s, 8.1 m at 8–15 s,
+  4.0 m after 15 s). Without movement noise, or with a switch margin of 0.2, the label switches halve and the lag
+  stays; a longer check interval changes nothing (the switches come from cue changes).
+- The urgency of a positional movement had its own tail (85 % only at 20 m from the point), so a winger 8 m short of
+  his spot ran at 3 m/s whatever the pace time.
+- Running by phase: out of possession 8.3–8.6 km against 5.7–5.8 km in possession per 90 live minutes (+46 %),
+  high-intensity 2.4 against 0.7 km (+250 %); real +7 % and +30 % [JEROME23]. Every player sprinted in a counter-press
+  or recovery phase: the block players' sprints were 11 % of all high-intensity running.
+- The running budget: with the ball in play the rate is > 2× the rate out of play [JEROME23]; with 57.5 minutes in
+  play and 10.94 km per match [ALTMANN23] that is ≈ 13–13.6 km per 90 in-play minutes. The earlier "≈ 17 km" scaled
+  all running by the time in play and overstated the room.
+- The low block's width and depth (finding P) are a mix effect: with the ball central 20–40 m out the back four spans
+  21–26 m (6–8 m gaps [FIFA-B4] ⇒ 18–24 m), and the deepest defender given the ball's distance matches StatsBomb
+  (BLK-02 bench). Not a target.
+- In the final third even the targets put only 1.7–1.9 team-mates ahead of the ball and 0.3–0.5 in the box; the
+  centre midfielders and full-backs are never ahead. Movements are valued as options for the current or next carrier,
+  so nobody goes for the box ahead of the wide entry: a choice problem, left for the next set.
+
+Changes: `blk05_line_mid` −20 → −15 m (BLK-05, the WC2022 mid-block line); a paced movement runs at `pace_run_speed`
+while the gap is large and closes the rest in its pace time, its speed no longer limited by the urgency
+(`locomotion::desired_velocity`); in counter-press and recovery only the players with a duty go unpaced, the block
+gets into shape at a run (TRN-03, ATT-11: "quickly make playing area as big / small as possible" [USS-D]). Pace times
+of 2 and 1.5 s were tried: +2.5–3 km of running, own-third width 43.1 → 43.4 m; kept at 4 s.
+
+| 40 matches | before | A1 only | set A |
+|---|---|---|---|
+| mid-block line / length (m) | 31.7 / 30.3 | 35.8 / 28.7 | 36.0 / 28.6 (37.2–37.9 / 22.5–29.1) |
+| keeper to goal line (m), offsides | 11.3, 1.54 | 13.1, 2.21 | 13.0, 2.29 (11.8–14.4, 2.2–2.7) |
+| in-possession width build-up / progression (m) | 40.5 / 45.5 | 42.8 / 46.0 | 43.0 / 46.0 (54 / 55) |
+| running, high-intensity (km per 90 in-play min) | 14.0, 2.88 | 13.2, 2.55 | 13.3, 2.42 (13–13.6, ≈ 1.2) |
+| second half, HI last vs first 15 | −12 %, −38 % | −14 %, −36 % | −10 %, −30 % (−7 %, −20 to −45 %) |
+| goals, shots per team | 2.38, 13.5 | 2.30, 12.2 | 2.33, 13.3 |
+| scorecard targets, references | 6 / 32, 5 / 10 | 9 / 32, 5 / 10 | 9 / 32, 6 / 10 |
+
+Still open from P and S: in-possession width and lines (distance at run speed after a regain; the final-third choice
+problem), running out of possession +49 % over in possession in the films (real +7 %): the attack moves too little,
+not only the defence too much.
+
 ## Open after the plan
 
 All milestones of the plan (M0–M8) are done. Statuses per principle are in the catalog; the open items are listed in
