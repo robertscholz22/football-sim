@@ -1,0 +1,13 @@
+// ROLE-11 · Wide midfielder in a midfield line. Wide lane of the midfield line; tucks in when a central midfielder steps out; tracks the full-back [FIFA-WC26; UEFA-UCL25; BDFL-PETER09].
+// Catalog entry: docs/tactics/principles.md ROLE-11. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: WM,
+    id: "ROLE-11",
+    name: "Wide midfielder in a midfield line",
+    unit: Midfield,
+    lane: Wide,
+    duties: [Width, Cover, MarkZone],
+    movements: [(Hold, 1.0), (Show, 0.4), (InToOut, 0.4), (OutToIn, 0.5), (RunInBehind, 0.5), (Overlap, 0.2), (Track, 0.9), (Press, 0.6), (Recover, 1.0), (BoxRun, 0.5)],
+    relations: [CMP, CM8, FB],
+    instructions: ["tuck_in", "stay_wide", "track_runner", "pass_on_runner"],
+)

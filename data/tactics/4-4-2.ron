@@ -1,0 +1,20 @@
+// Formation slots in normalised block coordinates, team frame (attacking +x; +y = left side).
+// depth: 0 = back line, 1 = front line of the block. width: -1 = right touchline side, +1 = left.
+// PRS-04: the two strikers are staggered (one presses, the partner screens).
+// Roles (docs/player-brain.md 5.3): GK, CB×2, FB×2, CMP×2, WM×2, ST2×2.
+(
+    name: "4-4-2",
+    slots: [
+        (role: GK, label: "GK",  out_pos: (0.0, 0.0),    in_pos: (0.0, 0.0)),
+        (role: FB, label: "RB",  out_pos: (0.0, -1.00),  in_pos: (0.4, -1.00)),
+        (role: CB, label: "RCB", out_pos: (0.0, -0.35),   in_pos: (0.0, -0.42)),
+        (role: CB, label: "LCB", out_pos: (0.0, 0.35),    in_pos: (0.0, 0.42)),
+        (role: FB, label: "LB",  out_pos: (0.0, 1.00),   in_pos: (0.4, 1.00)),
+        (role: WM, label: "RM",  out_pos: (0.45, -1.00), in_pos: (0.8, -0.98)),
+        (role: CMP, label: "RCM", out_pos: (0.45, -0.33), in_pos: (0.34, -0.26)),
+        (role: CMP, label: "LCM", out_pos: (0.45, 0.33),  in_pos: (0.56, 0.26)),
+        (role: WM, label: "LM",  out_pos: (0.45, 1.00),  in_pos: (0.8, 0.98)),
+        (role: ST2, label: "RS",  out_pos: (1.0, -0.21),  in_pos: (1.0, -0.23)),
+        (role: ST2, label: "LS",  out_pos: (0.88, 0.21),  in_pos: (0.92, 0.29)),
+    ],
+)

@@ -1,0 +1,13 @@
+// ROLE-05 · Full-back in a back four. Shares the wing with a winger or wide midfielder ahead; narrow in a block [FIFA-IFB-CWC25; FFA-NC; FIFA-TSG].
+// Catalog entry: docs/tactics/principles.md ROLE-05. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: FB,
+    id: "ROLE-05",
+    name: "Full-back in a back four",
+    unit: Back,
+    lane: Wide,
+    duties: [LastLine, RestDefence, Width, MarkZone],
+    movements: [(Hold, 1.0), (Show, 0.3), (Overlap, 0.5), (Underlap, 0.3), (Invert, 0.2), (Press, 0.5), (Mark, 0.8), (Track, 0.8), (Recover, 1.0)],
+    relations: [W, WM, CB],
+    instructions: ["overlap", "underlap", "invert", "stay_low", "high_wide", "drop_into_back_five"],
+)

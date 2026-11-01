@@ -1,0 +1,13 @@
+// ROLE-07 · Single pivot. Alone in front of the line; protects the back four; the #8s guard his sides [FIFA-WC26; UEFA-TR24; FFA-433].
+// Catalog entry: docs/tactics/principles.md ROLE-07. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: DM,
+    id: "ROLE-07",
+    name: "Single pivot",
+    unit: Midfield,
+    lane: Centre,
+    duties: [RestDefence, Cover, MarkZone],
+    movements: [(Hold, 1.0), (Show, 0.8), (Cover, 1.0), (Press, 0.5), (Mark, 0.6), (Recover, 1.0), (DropIntoBackLine, 0.3)],
+    relations: [CM8, CB],
+    instructions: ["drop_into_back_line", "mark_the_ten", "cover_full_back"],
+)

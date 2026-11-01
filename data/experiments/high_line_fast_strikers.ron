@@ -1,0 +1,33 @@
+// The plan's example experiment (M8): does a high line cost more against fast strikers? A 2 × 2 design: Northbridge
+// (home) defends with the layer-1 block or a high block (BLK-05), against Harbour's two strikers as they are (speed
+// 78.9 / 68.4, quickness 68.4 / 73.7) or with top pace. Run: match_lab --experiment data/experiments/high_line_fast_strikers.ron --matches 500
+Experiment(
+    name: "High line against fast strikers",
+    question: "Does the high block concede more when the strikers are fast (the interaction: D − C − B + A on away goals and xG)?",
+    arms: [
+        (name: "layer-1 block, strikers as they are"),
+        (
+            name: "high block, strikers as they are",
+            home: (instructions: Some((block_height: Some(High)))),
+        ),
+        (
+            name: "layer-1 block, fast strikers",
+            away: (players: [
+                (slot: 9, attrs: [("speed", 94.7), ("quickness", 89.5)]),
+                (slot: 10, attrs: [("speed", 94.7), ("quickness", 89.5)]),
+            ]),
+        ),
+        (
+            name: "high block, fast strikers",
+            home: (instructions: Some((block_height: Some(High)))),
+            away: (players: [
+                (slot: 9, attrs: [("speed", 94.7), ("quickness", 89.5)]),
+                (slot: 10, attrs: [("speed", 94.7), ("quickness", 89.5)]),
+            ]),
+        ),
+    ],
+    contrasts: [
+        (name: "high, fast: D − C", weights: [0.0, 0.0, -1.0, 1.0]),
+        (name: "interaction", weights: [1.0, -1.0, -1.0, 1.0]),
+    ],
+)

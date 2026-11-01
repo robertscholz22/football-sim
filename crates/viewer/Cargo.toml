@@ -1,0 +1,9 @@
+[package]
+name = "match_viewer"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+eframe = "0.37.0"
+match_engine = { version = "0.1.0", path = "../engine" }

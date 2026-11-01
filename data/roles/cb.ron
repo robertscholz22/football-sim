@@ -1,0 +1,13 @@
+// ROLE-02 · Centre-back in a pair. Two share the centre: one steps, one covers; marks or covers by the number of strikers; leads the line [FFA-NC; BDFL-PETER09; UEFA-UCL24].
+// Catalog entry: docs/tactics/principles.md ROLE-02. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: CB,
+    id: "ROLE-02",
+    name: "Centre-back in a pair",
+    unit: Back,
+    lane: Centre,
+    duties: [LastLine, LeadLine, RestDefence, Cover, MarkZone],
+    movements: [(Hold, 1.0), (Show, 0.3), (Cover, 1.0), (Mark, 0.8), (Press, 0.4), (Recover, 1.0), (StepIntoMidfield, 0.2)],
+    relations: [CB, FB, GK],
+    instructions: ["step_into_midfield", "follow_dropping_nine"],
+)

@@ -1,0 +1,13 @@
+// ROLE-14 · Striker in a pair. One offers short, one holds the depth; the ball-side one presses the centre-back, the other covers [UEFA-UCL25; DFB-TE-2ST; DFB-RP16].
+// Catalog entry: docs/tactics/principles.md ROLE-14. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: ST2,
+    id: "ROLE-14",
+    name: "Striker in a pair",
+    unit: Front,
+    lane: Centre,
+    duties: [Depth, StartPress],
+    movements: [(Hold, 1.0), (Pin, 0.9), (Check, 0.8), (Drop, 0.4), (RunInBehind, 1.0), (Decoy, 0.5), (Press, 0.8), (BoxRun, 1.0)],
+    relations: [ST2],
+    instructions: ["offer_or_hold_depth", "press_the_cb", "screen_the_pivot"],
+)

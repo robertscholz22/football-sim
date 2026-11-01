@@ -1,0 +1,13 @@
+// ROLE-06 · Wing-back in a back five. Sole width on his side; in the front five in possession; jumps to the wide player because the outside centre-back covers [UEFA-TR20; FIFA-GI-CHE; UEFA-UCL25].
+// Catalog entry: docs/tactics/principles.md ROLE-06. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: WB,
+    id: "ROLE-06",
+    name: "Wing-back in a back five",
+    unit: Back,
+    lane: Wide,
+    duties: [LastLine, RestDefence, Width, StepOut, MarkZone],
+    movements: [(Hold, 1.0), (Show, 0.3), (Overlap, 0.4), (RunInBehind, 0.4), (Invert, 0.2), (Press, 0.6), (Track, 0.8), (Recover, 1.0), (BoxRun, 0.4)],
+    relations: [CBW, WM, AM],
+    instructions: ["invert", "stay_deep"],
+)

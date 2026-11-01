@@ -1,0 +1,13 @@
+// ROLE-12 · Winger or wide forward. Front line, high and wide; pins the full-back; goes outside when he goes inside; presses from the front [FFA-NC; FIFA-WC26; UEFA-UCL25].
+// Catalog entry: docs/tactics/principles.md ROLE-12. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: W,
+    id: "ROLE-12",
+    name: "Winger or wide forward",
+    unit: Front,
+    lane: Wide,
+    duties: [Width, Depth],
+    movements: [(Hold, 1.0), (Pin, 0.8), (RunInBehind, 1.0), (OutToIn, 0.6), (InToOut, 0.4), (Check, 0.4), (Press, 0.7), (Track, 0.4), (BoxRun, 0.8)],
+    relations: [FB, WB],
+    instructions: ["wide", "inside", "press_outside_in", "stay_high", "track_back"],
+)

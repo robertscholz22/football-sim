@@ -1,0 +1,13 @@
+// ROLE-10 · Attacking midfielder between the lines. Receives in the pockets between the opposition midfield and defence; centre or half-space lane [FIFA-WC26; FFA-NC; UEFA-TR24].
+// Catalog entry: docs/tactics/principles.md ROLE-10. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: AM,
+    id: "ROLE-10",
+    name: "Attacking midfielder between the lines",
+    unit: Midfield,
+    lane: Centre,
+    duties: [MarkZone],
+    movements: [(Hold, 1.0), (Drop, 1.0), (Show, 0.6), (RunInBehind, 0.6), (Decoy, 0.3), (Press, 0.6), (Recover, 0.6), (BoxRun, 0.7)],
+    relations: [CF, ST2],
+    instructions: ["lane", "free_role", "drop_to_build", "run_in_behind"],
+)

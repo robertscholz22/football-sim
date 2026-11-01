@@ -1,0 +1,21 @@
+// Formation slots in normalised block coordinates, team frame (attacking +x; +y = left side).
+// depth: 0 = back line, 1 = front line of the block. width: -1 = right touchline side, +1 = left.
+// Roles (docs/player-brain.md 5.3): GK, CBW×2, CBC, WB×2, CMP×2, W×2, CF. Out of possession a 5-2-3 with the wide
+// forwards in the front line [FIFA-WC26, Sweden]; in possession the wingers move inside as the wing-backs give the width
+// [FIFA-GI-CHE].
+(
+    name: "3-4-3",
+    slots: [
+        (role: GK,  label: "GK",  out_pos: (0.0, 0.0),    in_pos: (0.0, 0.0)),
+        (role: WB,  label: "RWB", out_pos: (0.0, -1.00),  in_pos: (0.78, -1.00)),
+        (role: CBW, label: "RCB", out_pos: (0.0, -0.50),  in_pos: (0.0, -0.62)),
+        (role: CBC, label: "CB",  out_pos: (0.0, 0.0),    in_pos: (0.0, 0.0)),
+        (role: CBW, label: "LCB", out_pos: (0.0, 0.50),   in_pos: (0.0, 0.62)),
+        (role: WB,  label: "LWB", out_pos: (0.0, 1.00),   in_pos: (0.78, 1.00)),
+        (role: CMP, label: "RCM", out_pos: (0.45, -0.25), in_pos: (0.3, -0.2)),
+        (role: CMP, label: "LCM", out_pos: (0.45, 0.25),  in_pos: (0.42, 0.2)),
+        (role: W,   label: "RW",  out_pos: (0.85, -0.75), in_pos: (0.94, -0.6)),
+        (role: CF,  label: "ST",  out_pos: (1.0, 0.0),    in_pos: (1.0, 0.0)),
+        (role: W,   label: "LW",  out_pos: (0.85, 0.75),  in_pos: (0.94, 0.6)),
+    ],
+)

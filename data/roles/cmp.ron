@@ -1,0 +1,13 @@
+// ROLE-08 · Central midfielder in a pair. One joins the attack, the other stays behind the ball; when one presses the wide midfielder comes in [FFA-NC; FIFA-WC26; BDFL-PETER09].
+// Catalog entry: docs/tactics/principles.md ROLE-08. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: CMP,
+    id: "ROLE-08",
+    name: "Central midfielder in a pair",
+    unit: Midfield,
+    lane: Centre,
+    duties: [RestDefence, Cover, MarkZone],
+    movements: [(Hold, 1.0), (Show, 0.8), (Check, 0.2), (RunInBehind, 0.2), (Press, 0.6), (Cover, 0.8), (Recover, 1.0), (DropIntoBackLine, 0.2), (BoxRun, 0.3)],
+    relations: [CMP, WM],
+    instructions: ["hold", "advance", "drop_into_back_line", "step_out"],
+)

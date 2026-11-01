@@ -1,0 +1,13 @@
+[package]
+name = "match_engine"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+glam = { version = "0.34.1", features = ["serde"] }
+rand = "0.10.3"
+rand_chacha = "0.10.0"
+rand_distr = "0.6.0"
+ron = "0.12.2"
+serde = { version = "1.0.229", features = ["derive"] }

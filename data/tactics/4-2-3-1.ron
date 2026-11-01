@@ -1,0 +1,20 @@
+// Formation slots in normalised block coordinates, team frame (attacking +x; +y = left side).
+// depth: 0 = back line, 1 = front line of the block. width: -1 = right touchline side, +1 = left.
+// Roles (docs/player-brain.md 5.3): GK, CB×2, FB×2, CMP×2, AM (centre), W×2, CF. Out of possession a 4-4-2 (4-4-1-1
+// stagger): the #10 and the centre-forward become the strikers of a pair, the wingers wide midfielders [UEFA-UCL24].
+(
+    name: "4-2-3-1",
+    slots: [
+        (role: GK,  label: "GK",  out_pos: (0.0, 0.0),    in_pos: (0.0, 0.0)),
+        (role: FB,  label: "RB",  out_pos: (0.0, -1.00),  in_pos: (0.38, -1.00)),
+        (role: CB,  label: "RCB", out_pos: (0.0, -0.35),  in_pos: (0.0, -0.42)),
+        (role: CB,  label: "LCB", out_pos: (0.0, 0.35),   in_pos: (0.0, 0.42)),
+        (role: FB,  label: "LB",  out_pos: (0.0, 1.00),   in_pos: (0.38, 1.00)),
+        (role: CMP, label: "RDM", out_pos: (0.45, -0.33), in_pos: (0.26, -0.24)),
+        (role: CMP, label: "LDM", out_pos: (0.45, 0.33),  in_pos: (0.4, 0.22)),
+        (role: W,   out_role: Some(WM), label: "RW", out_pos: (0.45, -1.00), in_pos: (0.94, -1.00)),
+        (role: AM,  out_role: Some(ST2), label: "AM", out_pos: (0.86, 0.15), in_pos: (0.72, 0.0)),
+        (role: CF,  out_role: Some(ST2), label: "ST", out_pos: (1.0, -0.15), in_pos: (1.0, 0.0)),
+        (role: W,   out_role: Some(WM), label: "LW", out_pos: (0.45, 1.00), in_pos: (0.94, 1.00)),
+    ],
+)

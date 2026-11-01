@@ -1,0 +1,16 @@
+// The parametric possession value model against the fields learned by self-play (M8, data/value: iteration 1 learned
+// from 300 matches with the parametric model, iteration 2 from 300 matches with iteration 1), on seeds not used to
+// learn them. The fields belong to the engine they were learned with; relearn them after changes to the AI.
+// Run: match_lab --experiment data/experiments/value_field.ron --matches 300 --seed 1001
+Experiment(
+    name: "Possession value: parametric vs learned by self-play",
+    question: "Does playing with the learned field change the matches, and does the second iteration differ from the first?",
+    arms: [
+        (name: "parametric value model"),
+        (name: "learned field, iteration 1", config: Some("../value/self_play_1.ron")),
+        (name: "learned field, iteration 2", config: Some("../value/self_play_2.ron")),
+    ],
+    contrasts: [
+        (name: "C − B", weights: [0.0, -1.0, 1.0]),
+    ],
+)

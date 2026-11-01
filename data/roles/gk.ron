@@ -1,0 +1,13 @@
+// ROLE-01 · Goalkeeper. Defends the goal and the space behind the line; an extra build-up player [FFA-NC; FFA-433].
+// Catalog entry: docs/tactics/principles.md ROLE-01. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: GK,
+    id: "ROLE-01",
+    name: "Goalkeeper",
+    unit: Keeper,
+    lane: Centre,
+    duties: [],
+    movements: [(Hold, 1.0)],
+    relations: [CB, CBC],
+    instructions: ["build_up_involvement", "sweeping_height"],
+)

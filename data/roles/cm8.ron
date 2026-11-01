@@ -1,0 +1,13 @@
+// ROLE-09 · Number 8 beside a single pivot. Half-space receiver and runner; first presser out of the midfield line; covers the width in front of a back five [UEFA-TR24; FIFA-WC26; UEFA-UCL25].
+// Catalog entry: docs/tactics/principles.md ROLE-09. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: CM8,
+    id: "ROLE-09",
+    name: "Number 8 beside a single pivot",
+    unit: Midfield,
+    lane: Half,
+    duties: [StepOut, Cover, MarkZone],
+    movements: [(Hold, 1.0), (Show, 0.8), (Drop, 0.5), (RunInBehind, 0.3), (InToOut, 0.3), (Press, 0.8), (Recover, 1.0), (BoxRun, 0.5)],
+    relations: [DM, FB, WB, W],
+    instructions: ["press_trigger", "run_beyond", "stay", "go_wide"],
+)

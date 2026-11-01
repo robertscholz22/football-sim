@@ -1,0 +1,13 @@
+// ROLE-04 · Outside centre-back of a three or five. Half-space lane; free to step out; covers behind the wing-back; takes the wide lane in possession [UEFA-TR24; UEFA-UCL25; DFB-AK-IV].
+// Catalog entry: docs/tactics/principles.md ROLE-04. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: CBW,
+    id: "ROLE-04",
+    name: "Outside centre-back of a three or five",
+    unit: Back,
+    lane: Half,
+    duties: [LastLine, RestDefence, Cover, StepOut, MarkZone],
+    movements: [(Hold, 1.0), (Show, 0.3), (Press, 0.6), (Mark, 0.8), (Cover, 0.8), (Recover, 1.0), (Overlap, 0.3), (Underlap, 0.3)],
+    relations: [CBC, WB],
+    instructions: ["overlap", "underlap", "stay_home", "step_out"],
+)

@@ -1,0 +1,21 @@
+// Formation slots in normalised block coordinates, team frame (attacking +x; +y = left side).
+// depth: 0 = back line, 1 = front line of the block. width: -1 = right touchline side, +1 = left.
+// Roles (docs/player-brain.md 5.3): GK, CBW×2, CBC, WB×2, CMP×2, AM×2 (half-spaces), CF. In possession a 3-2-5 with the
+// wing-backs as the only width ("two No10s in an attacking 3-4-2-1" [UEFA-TR24]); out of possession a 5-4-1 with the
+// #10s as wide midfielders.
+(
+    name: "3-4-2-1",
+    slots: [
+        (role: GK,  label: "GK",  out_pos: (0.0, 0.0),    in_pos: (0.0, 0.0)),
+        (role: WB,  label: "RWB", out_pos: (0.0, -1.00),  in_pos: (0.8, -1.00)),
+        (role: CBW, label: "RCB", out_pos: (0.0, -0.50),  in_pos: (0.0, -0.62)),
+        (role: CBC, label: "CB",  out_pos: (0.0, 0.0),    in_pos: (0.0, 0.0)),
+        (role: CBW, label: "LCB", out_pos: (0.0, 0.50),   in_pos: (0.0, 0.62)),
+        (role: WB,  label: "LWB", out_pos: (0.0, 1.00),   in_pos: (0.8, 1.00)),
+        (role: CMP, label: "RCM", out_pos: (0.45, -0.25), in_pos: (0.3, -0.2)),
+        (role: CMP, label: "LCM", out_pos: (0.45, 0.25),  in_pos: (0.42, 0.2)),
+        (role: AM,  out_role: Some(WM), label: "RAM", out_pos: (0.45, -0.85), in_pos: (0.8, -0.38)),
+        (role: CF,  label: "ST",  out_pos: (1.0, 0.0),    in_pos: (1.0, 0.0)),
+        (role: AM,  out_role: Some(WM), label: "LAM", out_pos: (0.45, 0.85), in_pos: (0.8, 0.38)),
+    ],
+)

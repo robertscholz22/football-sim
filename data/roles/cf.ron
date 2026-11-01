@@ -1,0 +1,13 @@
+// ROLE-13 · Lone centre-forward. Must both pin the line and connect play, by situation and profile; decides when the press starts [FFA-NC; FIFA-N9-WC22; FIFA-WC22-OV].
+// Catalog entry: docs/tactics/principles.md ROLE-13. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: CF,
+    id: "ROLE-13",
+    name: "Lone centre-forward",
+    unit: Front,
+    lane: Centre,
+    duties: [Depth, StartPress],
+    movements: [(Hold, 1.0), (Pin, 1.0), (Check, 0.8), (Drop, 0.6), (RunInBehind, 1.0), (Decoy, 0.5), (Press, 0.8), (BoxRun, 1.0)],
+    relations: [AM, W],
+    instructions: ["come_short", "target_play", "press_trigger"],
+)

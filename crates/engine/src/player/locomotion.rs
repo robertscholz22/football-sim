@@ -1,0 +1,122 @@
+//! Player movement: "arrive" steering with acceleration that falls with speed, a braking limit,
+//! a lateral (turning) acceleration limit and soft separation between players.
+//! `ai::reach::time_to_reach` models the same kinematics for planning.
+
+use glam::Vec2;
+
+use super::{Body, Intent, Player};
+
+/// Minimum fraction of the acceleration still available at top speed.
+pub const ACCEL_FLOOR: f32 = 0.15;
+/// Body turn rate (rad/s) when standing.
+const FACING_TURN_RATE: f32 = 9.0;
+/// Speeds (m/s) between which the body turns from the look-at point to the run direction.
+const FACE_RUN_FROM: f32 = 3.0;
+const FACE_RUN_FULL: f32 = 5.5;
+
+/// Desired velocity for reaching `p.target`, which itself moves at `p.target_vel`.
+pub fn desired_velocity(p: &Player) -> Vec2 {
+    let to = p.target - p.pos;
+    let d = to.length();
+    let paced = p.pace_s > 0.0 && p.intent == Intent::Position;
+    let max = (p.kin.top_speed * p.urgency.clamp(0.05, 1.0)).min(if paced { p.pace_speed } else { f32::MAX });
+    if d < 0.05 {
+        return p.target_vel.clamp_length_max(max);
+    }
+    let mut speed = max;
+    if paced {
+        // Pacing (M6): he closes the gap in his pace time, not at the speed's limit.
+        speed = speed.min(d / p.pace_s);
+    }
+    if p.brake {
+        // Closing speed from which we can still stop at the target (relative to its motion).
+        speed = speed.min((2.0 * p.kin.decel * 0.8 * d).sqrt());
+    }
+    (p.target_vel + to / d * speed).clamp_length_max(max)
+}
+
+/// Integrate one player's motion over `dt`.
+pub fn step(p: &mut Player, dt: f32, now: f32) {
+    // Timed body states expire back to normal.
+    if p.body != Body::Normal && p.can_act(now) {
+        p.body = Body::Normal;
+    }
+    p.target += p.target_vel * dt;
+    let mut desired = desired_velocity(p);
+    let mut accel_scale = 1.0;
+    match p.body {
+        Body::Recovering { until } if now < until => {
+            desired *= 0.3;
+            accel_scale = 0.4;
+        }
+        Body::Kicking { until } if now < until => {
+            desired *= 0.4;
+        }
+        Body::Tackling { until } if now < until => {
+            desired = p.vel * 0.5;
+        }
+        Body::Diving { until, dir } if now < until => {
+            p.vel = dir;
+            p.pos += p.vel * dt;
+            return;
+        }
+        _ => {}
+    }
+
+    let v = p.vel;
+    let speed = v.length();
+    let fwd = if speed > 0.2 { v / speed } else { desired.normalize_or_zero() };
+    let dv = desired - v;
+    let dl = dv.dot(fwd);
+    let dlat = dv - dl * fwd;
+    let k = &p.kin;
+    let max_acc = k.accel * (1.0 - speed / k.top_speed).max(ACCEL_FLOOR) * accel_scale;
+    let dl_c = dl.clamp(-k.decel * dt, max_acc * dt);
+    // At low speed turning is limited by acceleration rather than grip.
+    let lat_limit = if speed < 2.0 { k.lateral_accel.max(k.accel * 1.5) } else { k.lateral_accel };
+    let dlat_c = dlat.clamp_length_max(lat_limit * dt);
+    let mut nv = v + dl_c * fwd + dlat_c;
+    if nv.length() > k.top_speed {
+        nv = nv.normalize() * k.top_speed;
+    }
+    p.vel = nv;
+    p.pos += nv * dt;
+    p.distance_covered += nv.length() * dt;
+
+    // Facing: towards the look-at point (usually the ball) when walking or jogging, the run direction when running
+    // hard, blended in between so the body does not flip as the speed crosses a threshold.
+    let look = (p.look_at - p.pos).normalize_or_zero();
+    let run = nv.normalize_or_zero();
+    // Setting up a kick: the body turns towards the kick (look-at point) with the ball at the feet.
+    let setting_up = matches!(p.intent, Intent::SetUp { .. });
+    let w = if setting_up { 0.0 } else { ((nv.length() - FACE_RUN_FROM) / (FACE_RUN_FULL - FACE_RUN_FROM)).clamp(0.0, 1.0) };
+    let want = if look == Vec2::ZERO { run } else { (look * (1.0 - w) + run * w).normalize_or(run) };
+    if want != Vec2::ZERO {
+        let max_turn = if setting_up { p.kin.ball_turn_rate } else { FACING_TURN_RATE } * dt;
+        let ang = p.facing.angle_to(want);
+        p.facing = Vec2::from_angle(ang.clamp(-max_turn, max_turn)).rotate(p.facing).normalize_or_zero();
+        if p.facing == Vec2::ZERO {
+            p.facing = want;
+        }
+    }
+}
+
+/// Push overlapping players apart (stronger players are pushed less).
+pub fn separate(players: &mut [Player], radius: f32) {
+    let min_d = 2.0 * radius;
+    for i in 0..players.len() {
+        for j in (i + 1)..players.len() {
+            let delta = players[j].pos - players[i].pos;
+            let d = delta.length();
+            if d < min_d && d > 1e-4 {
+                let overlap = min_d - d;
+                let n = delta / d;
+                let si = players[i].attrs.strength;
+                let sj = players[j].attrs.strength;
+                let wi = sj / (si + sj);
+                players[i].pos -= n * overlap * wi;
+                players[j].pos += n * overlap * (1.0 - wi);
+            }
+        }
+    }
+}

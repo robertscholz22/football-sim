@@ -1,0 +1,13 @@
+// ROLE-03 · Central centre-back of a three or five. Spare man and chief organiser; covers behind two stepping outside centre-backs [UEFA-UCL25; FIFA-GI-CHE; BDFL-WM14].
+// Catalog entry: docs/tactics/principles.md ROLE-03. Movement priors 0..1 (docs/player-brain.md section 6).
+(
+    role: CBC,
+    id: "ROLE-03",
+    name: "Central centre-back of a three or five",
+    unit: Back,
+    lane: Centre,
+    duties: [LastLine, LeadLine, RestDefence, Cover, MarkZone],
+    movements: [(Hold, 1.0), (Show, 0.3), (Cover, 1.0), (Mark, 0.6), (Recover, 1.0), (StepIntoMidfield, 0.3)],
+    relations: [CBW, GK],
+    instructions: ["carry_into_midfield", "mark_the_nine"],
+)
