@@ -54,6 +54,10 @@ pub struct SetPieceInstructions {
     pub attackers: Option<u8>,
     /// SP-02: a short option at attacking corners.
     pub short: Option<bool>,
+    /// SP-02: share of the corners played short.
+    pub short_share: Option<f32>,
+    /// SP-02: weights of the deliveries to the first post, the centre and the second post.
+    pub delivery: Option<[f32; 3]>,
     /// SP-03: the largest wall.
     pub wall_max: Option<u8>,
     /// SP-03: distance of the defensive line from the goal line at free kicks to be crossed (m).
@@ -97,6 +101,8 @@ pub struct DefendingInstructions {
     pub box_far: Option<f32>,
     pub cross_line_depth: Option<f32>,
     pub trap: Option<f32>,
+    /// PRS-01: how far away (s) a team-mate may be to double a carrier standing closed to play (0: never double).
+    pub double_time: Option<f32>,
     pub box_max_gap: Option<f32>,
     pub box_shift_factor: Option<f32>,
     pub box_mid_distance: Option<f32>,

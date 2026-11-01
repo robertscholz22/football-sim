@@ -226,7 +226,7 @@ fn a_wing_back_plays_higher_and_stays_back_less_than_a_full_back() {
     use match_engine::team::Role;
     let measure = |formation: &str, role: Role| {
         let mut acc = [0.0f64; 4];
-        for seed in 0..2u64 {
+        for seed in 0..4u64 {
             let mut home = known("northbridge");
             home.formation = formation.to_string();
             let mut away = known("harbour");
@@ -259,7 +259,8 @@ fn a_wing_back_plays_higher_and_stays_back_less_than_a_full_back() {
     let [wb_x, wb_y, wb_rest] = measure("3-5-2", Role::WB);
     let summary = format!("full-back x {fb_x:.1} |y| {fb_y:.1} rest {fb_rest:.2}; wing-back x {wb_x:.1} |y| {wb_y:.1} rest {wb_rest:.2}");
     // History: the margin was 4 m when phase E gave 8.1 m (x −9.3 vs −1.2). With crosses (M4) and BLK-03 (M5) the
-    // opponents' back line holds more and the gap is 3.8 m in these two short matches (x −6.2 vs −2.4).
+    // opponents' back line holds more and the gap is 3.8 m in these two short matches (x −6.2 vs −2.4). In the watch
+    // round (2026-11-01) two matches gave 2.9 m; the gap per pair of seeds ranges 2.9–9.8 m, so four seeds now.
     assert!(wb_x > fb_x + 3.0, "{summary}");
     assert!(wb_rest < fb_rest - 0.25, "{summary}");
     assert!(wb_y > fb_y - 1.5, "{summary}");
@@ -333,7 +334,12 @@ fn a_new_signing_causes_press_errors_that_his_team_mates_resolve_within_the_read
     }
     assert!(errors > 0, "the signing never misjudged a team-mate");
     assert!(longest <= bound, "a press error lasted {longest:.2} s (bound {bound:.2} s)");
-    assert!(4 * settled < new_side, "settled side {settled} error ticks, the signing's side {new_side}");
+    // History: the factor was 4 while the ratio over seeds 1–8 was 7.2 (settled 334, the signing's side 2399). Since
+    // the watch round (2026-11-01; first-time replans, `att06_replan_m`) a receiver who meets the ball away from the
+    // planned point controls it, and the defenders' references jump from the pass target to him; the settled side
+    // marks a man twice more often for a moment (seeds 3–4: 111 ticks, all marking, no press error, against 333 on
+    // the signing's side, 192 of them press errors). Over seeds 1–8 the ratio is 3.2.
+    assert!(2 * settled < new_side, "settled side {settled} error ticks, the signing's side {new_side}");
 }
 
 #[test]

@@ -62,6 +62,8 @@ pub enum DefDuty {
     Mark(PlayerId),
     /// Track a runner out of the own zone towards goal until a team-mate takes him over (DEF-04, IND-04).
     Track(PlayerId),
+    /// Double a carrier standing closed to play from the side he faces and go for the ball (PRS-01).
+    Double,
     /// Recovery run goal-side (IND-06).
     Recover,
     /// Hold the block (DEF-05, DEF-06, PRS-04).
@@ -314,6 +316,12 @@ pub fn attacking_block(ball: Vec2, offside: f32, t: &ResolvedTactics, tc: &Tacti
     Block { line_x, front_x, centre_y: (0.15 * ball.y).clamp(-room, room), half_width }
 }
 
+/// PRS-01: does player `c` stand closed to play, facing his own goal?
+pub fn closed_to_play(state: &MatchState, c: PlayerId) -> bool {
+    let p = &state.players[c];
+    state.frame(p.side).to_team(p.facing).x < -0.5
+}
+
 /// PRS-01 pressing triggers, from the defending team's perspective.
 fn detect_trigger(state: &MatchState, side: Side, cfg: &SimConfig, now: f32) -> Option<&'static str> {
     let tc = &cfg.tactics;
@@ -341,8 +349,7 @@ fn detect_trigger(state: &MatchState, side: Side, cfg: &SimConfig, now: f32) -> 
         if now - cp.control_since < 1.0 && state.last_touch_quality < tc.prs01_poor_touch_quality {
             return Some("poor touch");
         }
-        let facing_own_goal = state.frame(cp.side).to_team(cp.facing).x < -0.5;
-        if facing_own_goal {
+        if closed_to_play(state, c) {
             return Some("receiver facing own goal");
         }
     }
@@ -644,9 +651,9 @@ pub fn voiced_claim(b: &Beliefs, slot: usize) -> bool {
     if b.in_possession { b.att_duties[slot] == AttDuty::RestDefence } else { exclusive(b.def_duties[slot]) }
 }
 
-/// Is `d` a duty only one player can hold (the first defender, a mark, a track)?
+/// Is `d` a duty only one player can hold (the first defender, the doubler, a mark, a track)?
 fn exclusive(d: DefDuty) -> bool {
-    matches!(d, DefDuty::First | DefDuty::Mark(_) | DefDuty::Track(_))
+    matches!(d, DefDuty::First | DefDuty::Double | DefDuty::Mark(_) | DefDuty::Track(_))
 }
 
 /// Reading team-mates (docs/player-brain.md section 7), after every player's own update. Player i reads team-mate
@@ -884,6 +891,27 @@ fn assign_defence_duties(
             });
         if let Some(t) = third {
             b.def_duties[t] = DefDuty::Third;
+        }
+    }
+
+    // PRS-01: a carrier standing closed to play is doubled [BDFL-PETER]: while the first defender, engaged goal-side,
+    // keeps him from turning, the team-mate on the side he faces who reaches him soonest closes in from there and goes
+    // for the ball.
+    let double_time = team.tactics.defending.double_time;
+    if let Some(c) = opp_carrier.filter(|&c| {
+        double_time > 0.0 && !state.players[c].is_gk() && b.first_on == Some(c) && closed_to_play(state, c)
+    }) {
+        let cp = &state.players[c];
+        let front = cp.pos + cp.facing * tc.prs01_double_distance;
+        let front_times = reading::estimated(state, me, world.time_to_meet(side, front, carrier_vel));
+        let double = fixed.iter().position(|f| *f == Some(DefDuty::Double)).or_else(|| {
+            (0..PLAYERS_PER_TEAM)
+                .filter(|&i| b.def_duties[i] == DefDuty::Shape && !squad[i].is_gk() && fixed[i].is_none())
+                .filter(|&i| (squad[i].pos - cp.pos).dot(cp.facing) > 0.0 && front_times[i] <= double_time)
+                .min_by(|&a, &c| front_times[a].total_cmp(&front_times[c]).then(a.cmp(&c)))
+        });
+        if let Some(d) = double {
+            b.def_duties[d] = DefDuty::Double;
         }
     }
 

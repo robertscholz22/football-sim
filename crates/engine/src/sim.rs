@@ -519,8 +519,13 @@ impl Simulation {
         sit.offside_exempt = kind.offside_exempt();
         // SP-03: a direct free kick may be shot at goal.
         sit.direct = kind == RestartKind::FreeKick { direct: true };
+        sit.corner = kind == RestartKind::Corner;
         if kind == RestartKind::ThrowIn {
+            // SP-06: thrown from over the head.
             sit.max_pass = 25.0;
+            sit.throw_in = true;
+            sit.ball.z = self.cfg.tactics.sp06_height;
+            self.state.ball.pos.z = sit.ball.z;
         }
         self.restart_kick = Some(kind);
         self.on_ball_decision(taker, sit, now);
@@ -534,9 +539,15 @@ impl Simulation {
                 .min_by(|a, b| (a.pos - spot).length().total_cmp(&(b.pos - spot).length()).then(a.id.cmp(&b.id)))
                 .map(|p| (p.id, p.pos))
                 .unwrap();
+            let (spec, kind) = if kind == RestartKind::ThrowIn {
+                let a = self.cfg.tactics.sp06_angle;
+                (KickSpec::Lofted { target: to.1, launch_angle: a, backspin: 0.0, sidespin: 0.0 }, KickKind::LoftedPass)
+            } else {
+                (KickSpec::Ground { target: to.1, arrival_speed: 5.0 }, KickKind::GroundPass)
+            };
             let plan = KickPlan {
-                spec: KickSpec::Ground { target: to.1, arrival_speed: 5.0 },
-                kind: KickKind::GroundPass,
+                spec,
+                kind,
                 receiver: Some(to.0),
                 target: to.1,
                 arrival_t: 1.0,
@@ -861,13 +872,23 @@ impl Simulation {
                     self.on_ball_decision(c, Situation::open_play(c, ball.pos), now);
                 }
                 if self.state.control == Some(c) && matches!(self.state.players[c].intent, Intent::Hold) {
+                    // ATT-25: pressed, he shields the ball with his back to the nearest opponent as he perceives him
+                    // ("holding opponents off the ball while shielding" [USS-D]); free, he faces the opponents' goal.
+                    let pos = self.state.players[c].pos;
+                    let shield = receiver_pressured(&self.state, &self.cfg, c, pos, 0.0)
+                        .then(|| {
+                            scan::opponents(&self.state, &self.state.players[c], &self.cfg.ai)
+                                .min_by(|a, b| (a.0 - pos).length().total_cmp(&(b.0 - pos).length()).then(a.2.id.cmp(&b.2.id)))
+                                .map(|(o, ..)| pos + (pos - o).normalize_or_zero())
+                        })
+                        .flatten();
                     let fr = self.state.frame(self.state.players[c].side);
                     let p = &mut self.state.players[c];
                     p.target = p.pos;
                     p.urgency = 0.3;
                     p.brake = true;
                     p.target_vel = Vec2::ZERO;
-                    p.look_at = fr.to_world(TeamFrame::opp_goal());
+                    p.look_at = shield.unwrap_or_else(|| fr.to_world(TeamFrame::opp_goal()));
                 }
             }
         }
@@ -1138,6 +1159,7 @@ impl Simulation {
             let height = self.traj.at(t).pos.z.max(BALL_RADIUS);
             let mut sit = Situation::open_play(r, point.extend(height));
             sit.first_time = true;
+            sit.arrives_in = t;
             let (action, opts, chosen) = on_ball::decide(&self.state, &self.cfg, &self.plan, sit);
             if let Some(log) = &mut self.decision_log {
                 log.push((self.state.time, sit, opts.clone(), chosen));
@@ -1155,6 +1177,7 @@ impl Simulation {
         let dir = receive_dir(&self.state, &self.cfg, r, point, pressured);
         let p = &mut self.state.players[r];
         p.first_time = first_time;
+        p.first_time_at = point;
         p.receive_dir = dir;
         pressured
     }
@@ -1406,7 +1429,7 @@ impl Simulation {
         // Slow high balls are taken down on the chest / thigh; only fast ones are headed.
         let chest_height = self.cfg.player.control_height + 0.4;
         if p.is_gk() && self.gk_can_handle(id, bp.truncate()) && height <= self.cfg.player.gk_max_height {
-            self.gk_contact(id, now);
+            self.gk_contact(id, d, now);
             return;
         }
         if height > p.header_height() {
@@ -1570,7 +1593,13 @@ impl Simulation {
                 return;
             }
         }
-        // ATT-06: first-time play decided when the pass was released.
+        // ATT-06: first-time play decided when the pass was released; re-decided here if he meets the ball elsewhere.
+        if intended
+            && self.state.players[id].first_time.is_some()
+            && (ball.ground_pos() - self.state.players[id].first_time_at).length() > self.cfg.tactics.att06_replan_m
+        {
+            self.decide_reception(id, 0.0, ball.ground_pos());
+        }
         if intended && let Some(plan) = self.state.players[id].first_time {
             self.note_touch(id);
             self.gain_control(id, 1.0, now);
@@ -1758,7 +1787,8 @@ impl Simulation {
         }
     }
 
-    fn gk_contact(&mut self, gk: PlayerId, now: f32) {
+    /// `d`: horizontal distance (m) from the keeper to the ball's path this tick.
+    fn gk_contact(&mut self, gk: PlayerId, d: f32, now: f32) {
         let ball = self.state.ball;
         let speed = ball.speed();
         let f = self.state.flight;
@@ -1784,11 +1814,13 @@ impl Simulation {
             if let Some(fl) = self.state.flight.as_mut() {
                 fl.save_attempted = true;
             }
-            if !self.rng.chance(p_save) {
+            // Beaten by a shot that meets his body, he still blocks it: it comes off him instead of passing through.
+            let saved = self.rng.chance(p_save);
+            if !saved && d > self.cfg.player.gk_body_radius {
                 self.state.players[gk].touch_cooldown_until = now + 1.0;
                 return;
             }
-            let held = self.rng.chance(catch_prob(g, speed));
+            let held = saved && self.rng.chance(catch_prob(g, speed));
             let shooter = f.map(|f| f.kicker);
             let side = g.side;
             self.stats.teams[side.index()].saves += 1;
@@ -1806,7 +1838,7 @@ impl Simulation {
                 // Parry: out in front and to the side, or behind the goal line round the post (over the bar if high).
                 let fr = self.state.frame(side);
                 let mut b = self.state.ball;
-                let v = if self.rng.chance(self.cfg.duel.parry_behind) {
+                let v = if saved && self.rng.chance(self.cfg.duel.parry_behind) {
                     let (bt, gt) = (fr.to_team(b.pos.truncate()), fr.to_team(self.state.players[gk].pos));
                     let s = if bt.y >= gt.y { 1.0 } else { -1.0 };
                     // Crossing the goal line outside the post.
@@ -1921,7 +1953,9 @@ impl Simulation {
             let shooting = matches!(car.intent, Intent::SetUp { plan, .. } if plan.kind == KickKind::Shot);
             // BOX-03: near goal, a covered defender engages in the duel (2v1) instead of containing.
             let box03 = applied_defending(&self.state.team(def.side).tactics, &def.attrs, def.instruction_familiarity(false), &self.cfg.tactics);
-            let min_p = if self.covered_near_goal(d, c, box03.cover_radius) {
+            // PRS-01: the doubler goes for the ball like a covered defender: the first defender is goal-side.
+            let doubling = def.beliefs.def_duties[def.slot] == DefDuty::Double;
+            let min_p = if self.covered_near_goal(d, c, box03.cover_radius) || doubling && self.covered(d, c, box03.cover_radius) {
                 box03.tackle_min_p
             } else {
                 self.cfg.tactics.ind03_tackle_min_p

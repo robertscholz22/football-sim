@@ -46,24 +46,27 @@ pub struct BiasCtx {
     pub better_placed: bool,
 }
 
-/// Personality bias (value units) for an option. Egotism and flair are fractions of the local value `scale`;
-/// the aggression term discounts the option's own turnover cost.
+/// Personality bias (value units) for an option. Egotism and flair are fractions of the local value `scale`, on a
+/// shot of the shot's own value (`ctx.p`, its xG); the aggression term discounts the option's own turnover cost.
 pub fn bias(a: &Attributes, kind: OptionKind, ctx: &BiasCtx, scale: f32, cfg: &PersonalityConfig) -> f32 {
     let ego = norm(a.egotism) * (0.6 + 0.8 * ctx.near_goal) * (0.7 + 0.6 * ctx.confidence);
     let flair = norm(a.flair) * cfg.flair_bonus;
     let mut b = match kind {
-        // Egotists shoot from worse positions: the shot gets the largest self bonus.
-        OptionKind::Shot { curled } => cfg.egotism_shot_factor * ego * cfg.egotism_self_bonus + if curled { flair } else { 0.0 },
-        OptionKind::Dribble { take_on } => ego * cfg.egotism_self_bonus + if take_on { flair } else { 0.0 },
-        OptionKind::Hold => 0.5 * ego * cfg.egotism_self_bonus,
+        // Egotists overrate their own chance and so shoot from worse positions. As a share of the local scale, two to
+        // three times a long shot's xG at 25 m, the bonus was half a long shot's worth even at egotism 28 and doubled
+        // the shot share at 22–30 m; as a share of the shot's xG it grows towards goal, where shots are good.
+        OptionKind::Shot { curled } => (cfg.egotism_shot_share * ego + if curled { flair } else { 0.0 }) * ctx.p,
+        OptionKind::Dribble { take_on } => (ego * cfg.egotism_self_bonus + if take_on { flair } else { 0.0 }) * scale,
+        OptionKind::Hold => 0.5 * ego * cfg.egotism_self_bonus * scale,
         OptionKind::Pass { safe, through, lofted } => {
             let factor = if safe || ctx.better_placed { 2.0 } else { 1.0 };
-            -ego * cfg.egotism_pass_penalty * factor
+            (-ego * cfg.egotism_pass_penalty * factor
                 + if through { 0.6 * flair } else { 0.0 }
-                + if lofted { 0.3 * flair } else { 0.0 }
+                + if lofted { 0.3 * flair } else { 0.0 })
+                * scale
         }
         OptionKind::Clear => 0.0,
-    } * scale;
+    };
     // Aggression: under pressure, part of the turnover cost is ignored.
     b += cfg.aggression_risk_reduction * norm(a.aggression) * ctx.pressure * (1.0 - ctx.p) * ctx.cost;
     b

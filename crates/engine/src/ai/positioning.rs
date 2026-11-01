@@ -414,6 +414,27 @@ fn defend(state: &MatchState, cfg: &SimConfig, id: PlayerId, anchor_t: Vec2, rng
             }
             mv.drifts = false;
         }
+        DefDuty::Double => {
+            // PRS-01: from the side the carrier faces, close in on him and go for the ball, while the first defender
+            // keeps him from turning [BDFL-PETER].
+            mv.drifts = false;
+            mv.kind = Movement::Press;
+            mv.label = "double";
+            mv.rules.push("PRS-01");
+            match carrier {
+                Some(c) => {
+                    let cp = &state.players[c];
+                    mv.target = clamp_to_pitch(cp.pos + cp.facing * tc.prs01_double_distance, 0.5);
+                    mv.target_vel = cp.vel;
+                    mv.tracks = (cp.pos - p.pos).length() < tc.ind01_track_distance;
+                    mv.look_at = cp.pos;
+                }
+                None => mv.target = fr.to_world(anchor_t),
+            }
+            mv.urgency = 1.0;
+            mv.pace_s = 0.0;
+            mv.brake = true;
+        }
         DefDuty::Third => {
             mv.target = fr.to_world(anchor_t);
             mv.settles = true;
@@ -959,11 +980,11 @@ fn offer_points(cfg: &SimConfig, p: &Player, s: &Spots, ps: Option<&offer::Passe
         }
         // Between the two centre-backs of a back four, who then split [FIFA-WC26-B3].
         Movement::DropIntoBackLine => s.back_gap.into_iter().collect(),
-        // FT-03: into the box while the carrier is wide in the final third: near post, far post, penalty spot, edge of
-        // the box ("attacks the front post", "the back post", "the edge of the penalty area for any second balls"
-        // [FIFA-ES]).
+        // FT-03: into the box while the carrier is wide in the final third, and on until his cross lands: near post,
+        // far post, penalty spot, edge of the box ("attacks the front post", "the back post", "the edge of the
+        // penalty area for any second balls" [FIFA-ES]).
         Movement::BoxRun => {
-            let Some(c) = ps.map(|c| c.at) else { return Vec::new() };
+            let Some(c) = ps.map(|c| c.cross_from.unwrap_or(c.at)) else { return Vec::new() };
             if third_of(c.x) != Third::Attacking || c.y.abs() <= PENALTY_AREA_HALF_WIDTH {
                 return Vec::new();
             }

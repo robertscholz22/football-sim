@@ -23,6 +23,9 @@ pub enum TeamOption {
     /// PRS-05: trap at the touchline / no trap.
     TrapAtTheTouchline,
     NoTouchlineTrap,
+    /// PRS-01: double up on a player with his back to goal from further away / never double up.
+    DoubleUpOnBackToGoal,
+    NoDoublingUp,
     /// CRS-01: defend crosses deep / higher.
     DefendCrossesDeep,
     DefendCrossesHigh,
@@ -56,7 +59,7 @@ pub enum TeamOption {
 }
 
 impl TeamOption {
-    pub const ALL: [TeamOption; 28] = [
+    pub const ALL: [TeamOption; 30] = [
         TeamOption::AttackEveryHighBall,
         TeamOption::OnlyWhenFirstToIt,
         TeamOption::TrackEveryRunner,
@@ -65,6 +68,8 @@ impl TeamOption {
         TeamOption::HoldTheLine,
         TeamOption::TrapAtTheTouchline,
         TeamOption::NoTouchlineTrap,
+        TeamOption::DoubleUpOnBackToGoal,
+        TeamOption::NoDoublingUp,
         TeamOption::DefendCrossesDeep,
         TeamOption::DefendCrossesHigh,
         TeamOption::SwitchPlay,
@@ -97,6 +102,8 @@ impl TeamOption {
             TeamOption::HoldTheLine => "hold the line",
             TeamOption::TrapAtTheTouchline => "trap at the touchline",
             TeamOption::NoTouchlineTrap => "no touchline trap",
+            TeamOption::DoubleUpOnBackToGoal => "double up on a player with his back to goal",
+            TeamOption::NoDoublingUp => "no doubling up",
             TeamOption::DefendCrossesDeep => "defend crosses deep",
             TeamOption::DefendCrossesHigh => "defend crosses higher",
             TeamOption::SwitchPlay => "switch play",
@@ -132,6 +139,8 @@ impl TeamOption {
             TeamOption::HoldTheLine => d.step_out = Some(0.0),
             TeamOption::TrapAtTheTouchline => d.trap = Some(1.0),
             TeamOption::NoTouchlineTrap => d.trap = Some(0.0),
+            TeamOption::DoubleUpOnBackToGoal => d.double_time = Some(1.5 * tc.prs01_double_time_s),
+            TeamOption::NoDoublingUp => d.double_time = Some(0.0),
             TeamOption::DefendCrossesDeep => d.cross_line_depth = Some(tc.crs01_line_depth - 4.0),
             TeamOption::DefendCrossesHigh => d.cross_line_depth = Some(tc.crs01_line_depth + 4.0),
             TeamOption::SwitchPlay => a.switch_bonus = Some(2.0 * tc.att21_switch_bonus),
@@ -230,6 +239,7 @@ mod tests {
                 d.track_speed - d1.track_speed,
                 d.step_out - d1.step_out,
                 d.trap - d1.trap,
+                d.double_time - d1.double_time,
                 d.cross_line_depth - d1.cross_line_depth,
                 a.switch_bonus - a1.switch_bonus,
                 a.meet_m - a1.meet_m,
@@ -244,10 +254,10 @@ mod tests {
         };
         for pair in TeamOption::ALL.chunks(2) {
             let (x, y) = (values(pair[0]), values(pair[1]));
-            let moved = |v: &[f32; 14]| v.iter().filter(|d| d.abs() > 1e-4).count();
+            let moved = |v: &[f32; 15]| v.iter().filter(|d| d.abs() > 1e-4).count();
             // An option may equal layer 1 (the trap is on by default); then its partner moves.
             assert!(moved(&x) + moved(&y) >= 1 && moved(&x) <= 1 && moved(&y) <= 1, "{pair:?}: {x:?} / {y:?}");
-            let k = (0..14).find(|&k| x[k].abs() > 1e-4 || y[k].abs() > 1e-4).unwrap();
+            let k = (0..15).find(|&k| x[k].abs() > 1e-4 || y[k].abs() > 1e-4).unwrap();
             assert!(x[k] != y[k], "{pair:?}");
             assert!(x[k] * y[k] <= 0.0, "{pair:?}: both on one side of layer 1: {} / {}", x[k], y[k]);
         }

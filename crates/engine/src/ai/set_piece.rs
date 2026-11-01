@@ -1,16 +1,64 @@
 //! Set pieces (M7): where the players go while a corner, a free kick in the attacking third or a penalty kick is
 //! being prepared. SP-01 defending corners, SP-02 attacking corners, SP-03 free kicks near goal (the wall), SP-04
-//! penalty kicks. Once the kick is taken open play takes over (CRS-01 / FT-03 decide the delivery); the delivery is
-//! the taker's on-ball choice like any pass or shot. Goal kicks (SP-05) need no positions of their own: the build-up
-//! (BU-01) and the press on the keeper (PRS-01) handle them.
+//! penalty kicks. A corner's delivery is the team's routine (`corner_delivery`); a free kick's is the taker's on-ball
+//! choice like any pass or shot. Once the kick is taken open play takes over (CRS-01 / FT-03). Goal kicks (SP-05) need
+//! no positions of their own: the build-up (BU-01) and the press on the keeper (PRS-01) handle them.
 
 use glam::Vec2;
 
 use super::analysis::goal_angle;
+use super::on_ball::{Action, OptionEval, Situation};
+use super::personality::OptionKind;
 use crate::config::TacticsConfig;
 use crate::match_state::{MatchState, RestartKind};
 use crate::pitch::{CENTRE_CIRCLE_RADIUS, HALF_LENGTH, HALF_WIDTH, PENALTY_AREA_DEPTH, PENALTY_AREA_HALF_WIDTH, Side, TeamFrame};
 use crate::player::{Player, PlayerId};
+use crate::rng::SimRng;
+
+/// SP-02 delivery zones of a corner, attacking frame with the ball on the +y side: the first post, the centre, the
+/// second post. The first three attackers in the box attack them.
+const CORNER_ZONES: [(Vec2, &str); 3] = [
+    (Vec2::new(HALF_LENGTH - 5.0, 2.5), "attack the front post"),
+    (Vec2::new(HALF_LENGTH - 6.0, -0.5), "attack the centre"),
+    (Vec2::new(HALF_LENGTH - 5.5, -3.5), "attack the far post"),
+];
+
+/// SP-02: the corner's delivery, a team routine [ACAD-C01; PL-TT24], drawn per kick: short with `short_share` when
+/// there is a short option (the best ground pass to a team-mate outside the box), otherwise a lofted ball to the first
+/// post, the centre or the second post by the `delivery` weights, to the attacker nearest that zone. As the taker's
+/// own choice the ball went along the ground to the front post in 86 % of the corners: priced as possession 5 m from
+/// goal, a ball to a marked attacker beat any header. `None` without such an option: the taker decides as in open
+/// play.
+pub fn corner_delivery(state: &MatchState, sit: &Situation, opts: &[OptionEval]) -> Option<usize> {
+    let p = &state.players[sit.carrier];
+    let sp = state.team(p.side).tactics.set_pieces;
+    let fr = state.frame(p.side);
+    let s = if fr.to_team(sit.ball.truncate()).y < 0.0 { -1.0 } else { 1.0 };
+    let target = |o: &OptionEval| match o.action {
+        Action::Kick(k) if k.receiver.is_some() => Some(fr.to_team(k.target)),
+        _ => None,
+    };
+    let in_box = |t: Vec2| t.x > HALF_LENGTH - PENALTY_AREA_DEPTH && t.y.abs() < PENALTY_AREA_HALF_WIDTH;
+    let best = |keep: &dyn Fn(usize) -> bool, key: &dyn Fn(usize) -> f32| {
+        (0..opts.len()).filter(|&i| keep(i)).max_by(|&a, &b| key(a).total_cmp(&key(b)).then(b.cmp(&a)))
+    };
+    if sp.short && (SimRng::hashed_unit(p.decision_seed, b"corner short") as f32) < sp.short_share {
+        let short = best(&|i| matches!(opts[i].kind, OptionKind::Pass { lofted: false, .. }) && target(&opts[i]).is_some_and(|t| !in_box(t)), &|i| opts[i].utility());
+        if short.is_some() {
+            return short;
+        }
+    }
+    let w = sp.delivery;
+    let mut u = SimRng::hashed_unit(p.decision_seed, b"corner zone") as f32 * w.iter().sum::<f32>();
+    let k = w.iter().position(|&x| {
+        u -= x;
+        u < 0.0
+    })?;
+    let zone = Vec2::new(CORNER_ZONES[k].0.x, s * CORNER_ZONES[k].0.y);
+    best(&|i| matches!(opts[i].kind, OptionKind::Pass { lofted: true, .. }) && target(&opts[i]).is_some_and(in_box), &|i| {
+        -target(&opts[i]).map_or(f32::MAX, |t| (t - zone).length())
+    })
+}
 
 /// A set-piece position: where (world), what it is, and the rule behind it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -99,14 +147,17 @@ fn plan(state: &MatchState, tc: &TacticsConfig, side: Side, spot: Vec2, taker: P
         let (pt, label) = match kind {
             // SP-02: 5–6 attackers, front post overloaded (FIFA-SP04, FIFA-SP05); deliveries go to the first post
             // 42 %, the centre 24 %, the second post 21 % (ACAD-C01).
-            Kind::Corner => [
-                (Vec2::new(HALF_LENGTH - 6.0, -s * 0.5), "attack the centre"),
-                (Vec2::new(HALF_LENGTH - 5.0, s * 2.5), "attack the front post"),
-                (Vec2::new(HALF_LENGTH - 5.5, -s * 3.5), "attack the far post"),
-                (Vec2::new(HALF_LENGTH - 8.5, s * 4.0), "front post, second wave"),
-                (Vec2::new(HALF_LENGTH - 11.0, -s * 1.5), "penalty spot"),
-                (Vec2::new(HALF_LENGTH - 1.5, s * 0.5), "screen the keeper"),
-            ][i.min(5)],
+            Kind::Corner => {
+                let zone = |k: usize| (Vec2::new(CORNER_ZONES[k].0.x, s * CORNER_ZONES[k].0.y), CORNER_ZONES[k].1);
+                [
+                    zone(1),
+                    zone(0),
+                    zone(2),
+                    (Vec2::new(HALF_LENGTH - 8.5, s * 4.0), "front post, second wave"),
+                    (Vec2::new(HALF_LENGTH - 11.0, -s * 1.5), "penalty spot"),
+                    (Vec2::new(HALF_LENGTH - 1.5, s * 0.5), "screen the keeper"),
+                ][i.min(5)]
+            }
             // SP-03: level with the defensive line, across the goal, more to the far side of a wide kick.
             _ => {
                 let span = 16.0;

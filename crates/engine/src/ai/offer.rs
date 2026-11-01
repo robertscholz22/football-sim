@@ -21,7 +21,7 @@ use crate::config::SimConfig;
 use crate::duel::{aerial_win_prob, challenge_strength, control_skill, logistic, pass_touch_prob};
 use crate::match_state::{MatchState, PLAYERS_PER_TEAM, side_of};
 use crate::pitch::is_cross;
-use crate::player::{Intent, Player, PlayerId, norm};
+use crate::player::{Intent, KickKind, Player, PlayerId, norm};
 use crate::team::{Movement, applied_attacking};
 
 /// Speed (m/s) of the nominal pass an offer is priced with, and the time (s) the receiver of a pass in flight needs to
@@ -47,6 +47,9 @@ pub struct Passer {
     pub facing: Vec2,
     /// Facing forward with time: an open ball [FA-FWD]. A closed carrier can hardly play a ball in behind.
     pub open: bool,
+    /// Where a team-mate's cross still in flight to him was struck from (team frame): the box runs go on until it
+    /// lands (FT-03).
+    pub cross_from: Option<Vec2>,
 }
 
 /// An option of the carrier: the ball to `point` (team frame), available with probability `avail`, worth `value`.
@@ -83,7 +86,7 @@ pub fn passer(state: &MatchState, cfg: &SimConfig, me: &Player, horizon: f32) ->
     let fr = state.frame(side);
     if let Some(c) = state.control.filter(|&c| side_of(c) == side && c != me.id) {
         let cp = &state.players[c];
-        return Some(Passer { id: c, at: fr.to_team(cp.pos), from_t: 0.0, facing: cp.facing, open: is_open(state, cfg, cp) });
+        return Some(Passer { id: c, at: fr.to_team(cp.pos), from_t: 0.0, facing: cp.facing, open: is_open(state, cfg, cp), cross_from: None });
     }
     let f = state.flight.filter(|f| side_of(f.kicker) == side)?;
     let r = f.receiver.filter(|&r| r != me.id)?;
@@ -96,7 +99,9 @@ pub fn passer(state: &MatchState, cfg: &SimConfig, me: &Player, horizon: f32) ->
     let open = fr.to_team(f.start_pos).x > at.x - 3.0 && !receiver_pressured(state, cfg, r, point, left);
     // He takes it facing the ball.
     let facing = (f.start_pos - point).normalize_or_zero();
-    Some(Passer { id: r, at, from_t: left + SETUP_S, facing, open })
+    let start = fr.to_team(f.start_pos);
+    let cross_from = is_cross(start, at, f.kind == KickKind::LoftedPass).then_some(start);
+    Some(Passer { id: r, at, from_t: left + SETUP_S, facing, open, cross_from })
 }
 
 /// The offer of `r` at team-frame `point` to `ps`, against the opponents `opps`; `through`: a ball in behind, for which

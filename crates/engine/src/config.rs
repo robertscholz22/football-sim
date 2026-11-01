@@ -167,6 +167,8 @@ pub struct PlayerConfig {
     pub gk_reaction_max: f32,
     /// Horizontal reach (m) of a standing goalkeeper's hands.
     pub gk_standing_reach: f32,
+    /// A shot passing within this (m) of the keeper meets his body (half his width plus the ball's radius).
+    pub gk_body_radius: f32,
     /// Max ball height (bottom of ball) a goalkeeper can catch.
     pub gk_max_height: f32,
     /// Chance that a shot passing within `body_radius` of an outfield opponent hits him (the body is in the way;
@@ -259,6 +261,7 @@ impl Default for PlayerConfig {
             gk_reaction_min: 0.12,
             gk_reaction_max: 0.32,
             gk_standing_reach: 1.2,
+            gk_body_radius: 0.3,
             shot_body_block_p: 0.9,
             shot_block_reach: 1.4,
             shot_block_height: 0.7,
@@ -351,6 +354,11 @@ pub struct TacticsConfig {
     pub prs01_trigger_duration_s: f32,
     /// PRS-01: a trigger lets the first defender press up to this far beyond the press zone (BLK-05).
     pub prs01_zone_extension: f32,
+    /// PRS-01: a carrier standing closed to play (facing his own goal) with the first defender engaged goal-side of
+    /// him is doubled [BDFL-PETER]: the team-mate on the side he faces who can reach him within `prs01_double_time_s`
+    /// (s; 0: never) closes in to `prs01_double_distance` (m) in front of him and goes for the ball.
+    pub prs01_double_time_s: f32,
+    pub prs01_double_distance: f32,
     pub prs02_arrival_slack_s: f32,
     /// PRS-05: in a press with the carrier in the touchline zone (`prs01_touchline_zone`), the covering defender closes
     /// him from the inside at `prs05_trap_distance` (m), so the touchline, the first defender and he trap him
@@ -443,6 +451,9 @@ pub struct TacticsConfig {
     pub att03_forward_bonus_per_m: f32,
     pub att04_bind_bonus: f32,
     pub att06_pressure_time_s: f32,
+    /// A first-time action is re-decided on the spot when he meets the ball farther than this (m) from where he
+    /// planned it: 43 % of first-time shots were struck 8 m or more from the point their xG was priced at.
+    pub att06_replan_m: f32,
     pub att07_short_max: f32,
     pub att07_long_min: f32,
     pub att08_min_distance: f32,
@@ -522,6 +533,10 @@ pub struct TacticsConfig {
     /// SP-02 attacking corners: attackers in the box; a short option near the taker.
     pub sp02_attackers: u8,
     pub sp02_short: bool,
+    /// SP-02 delivery mix: the share of corners played short (when there is a short option), and the weights of the
+    /// first post, the centre and the second post for the others.
+    pub sp02_short_share: f32,
+    pub sp02_delivery: [f32; 3],
     /// SP-03 free kicks: a direct free kick within `sp03_range_m` of goal is defended with a wall of up to
     /// `sp03_wall_max` (`set_piece::wall_size`) and the keeper `sp03_gk_shift_m` towards the far post; otherwise with
     /// a line `sp03_line_m` from the goal line and the keeper `sp03_gk_m` off his.
@@ -554,6 +569,12 @@ pub struct TacticsConfig {
     pub sp04_save_right: f32,
     /// SP-04: a penalty kick's xG (OPTA-PK01: "historically about 78% of them are scored").
     pub sp04_xg: f32,
+    /// SP-06 throw-ins: thrown with both hands from over the head (Law 15), released at `sp06_height` m at
+    /// `sp06_angle` rad, at up to `sp06_speed_min` + (`sp06_speed_max` − `sp06_speed_min`) × strength m/s.
+    pub sp06_height: f32,
+    pub sp06_angle: f32,
+    pub sp06_speed_min: f32,
+    pub sp06_speed_max: f32,
 }
 
 impl Default for TacticsConfig {
@@ -600,6 +621,8 @@ impl Default for TacticsConfig {
             prs01_poor_touch_quality: 0.5,
             prs01_trigger_duration_s: 2.0,
             prs01_zone_extension: 15.0,
+            prs01_double_time_s: 2.0,
+            prs01_double_distance: 1.0,
             prs02_arrival_slack_s: 0.4,
             prs05_trap_distance: 4.0,
             prs05_trap: 1.0,
@@ -659,6 +682,7 @@ impl Default for TacticsConfig {
             att03_forward_bonus_per_m: 0.005,
             att04_bind_bonus: 0.15,
             att06_pressure_time_s: 0.6,
+            att06_replan_m: 2.0,
             att07_short_max: 10.0,
             att07_long_min: 30.0,
             att08_min_distance: 6.0,
@@ -705,6 +729,8 @@ impl Default for TacticsConfig {
             sp01_setup_max_s: 15.0,
             sp02_attackers: 5,
             sp02_short: true,
+            sp02_short_share: 0.19,
+            sp02_delivery: [0.423, 0.238, 0.205],
             sp03_range_m: 32.0,
             sp03_wall_max: 5,
             sp03_gk_shift_m: 1.0,
@@ -724,6 +750,10 @@ impl Default for TacticsConfig {
             sp04_speed: 0.8,
             sp04_save_right: 0.3,
             sp04_xg: 0.78,
+            sp06_height: 2.2,
+            sp06_angle: 0.56,
+            sp06_speed_min: 12.0,
+            sp06_speed_max: 19.0,
         }
     }
 }
@@ -1095,8 +1125,8 @@ impl Default for AiConfig {
 pub struct PersonalityConfig {
     /// Bonus for self actions (dribble, shoot, hold) at full egotism.
     pub egotism_self_bonus: f32,
-    /// The shot's self bonus as a multiple of `egotism_self_bonus` (egotists shoot from worse positions).
-    pub egotism_shot_factor: f32,
+    /// The shot's self bonus at full egotism as a share of the shot's xG (egotists overrate their chance).
+    pub egotism_shot_share: f32,
     /// Penalty on passes at full egotism; doubled for square/back passes and passes to better-placed teammates.
     pub egotism_pass_penalty: f32,
     pub flair_bonus: f32,
@@ -1108,7 +1138,7 @@ impl Default for PersonalityConfig {
     fn default() -> Self {
         Self {
             egotism_self_bonus: 0.25,
-            egotism_shot_factor: 1.5,
+            egotism_shot_share: 0.5,
             egotism_pass_penalty: 0.15,
             flair_bonus: 0.12,
             aggression_risk_reduction: 0.3,

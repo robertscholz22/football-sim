@@ -6,7 +6,7 @@ use glam::{Vec2, Vec3};
 
 use super::execution::{ExecInput, natural_foot};
 use super::reach::{pass_reaction, time_to_reach, time_to_reach_after};
-use crate::ball::{BALL_RADIUS, Ball, BallParams, KickSolution, predict};
+use crate::ball::{BALL_MASS, BALL_RADIUS, Ball, BallParams, KickSolution, predict};
 use crate::config::{AiConfig, SimConfig, TacticsConfig, ValueGrid};
 use crate::duel::{aerial_win_prob, control_prob, logistic, pass_touch_prob};
 use crate::match_state::{MatchState, side_of};
@@ -602,6 +602,10 @@ fn keeper_open_share(gk: &Player, fr: TeamFrame, p: Vec2, speed: f32, now: f32, 
     };
     let reach = pc.gk_standing_reach + gk.kin.gk_dive_reach;
     let dive_t = gk.kin.gk_dive_reach / pc.gk_dive_speed;
+    // Flight time to a point `s` m along the path under quadratic air drag (dv/ds = −k·v): (e^{ks} − 1) / (k·v0). At
+    // constant speed a 40 m shot reached the line in 1.6 s instead of 2.1 s, and the keeper looked beaten.
+    let k = 0.5 * cfg.ball.air_density * cfg.ball.drag_coefficient * std::f32::consts::PI * BALL_RADIUS * BALL_RADIUS / BALL_MASS;
+    let flight = |s: f32| if k > 1e-6 { ((k * s).exp() - 1.0) / (k * speed) } else { s / speed };
     let gk_t = fr.to_team(gk.pos);
     let mut open = 0.0;
     for k in 0..AIMS {
@@ -619,7 +623,7 @@ fn keeper_open_share(gk: &Player, fr: TeamFrame, p: Vec2, speed: f32, now: f32, 
                 let near = (pt - gk_t).length();
                 let dive = dive_t.min((near - pc.gk_standing_reach).max(0.0) / pc.gk_dive_speed);
                 let t_gk = busy + time_to_reach(gk, fr.to_world(pt), reach, true) + dive;
-                s / speed - (t_gk - lead).max(gk.kin.reaction + dive)
+                flight(s) - (t_gk - lead).max(gk.kin.reaction + dive)
             })
             .fold(f32::MIN, f32::max);
         open += 1.0 - logistic(margin / cfg.ai.xg_keeper_race_sigma);

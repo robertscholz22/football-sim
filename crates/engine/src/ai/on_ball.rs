@@ -84,6 +84,13 @@ pub struct Situation {
     pub direct: bool,
     /// Penalty kick: a shot only (Law 14, SP-04).
     pub penalty: bool,
+    /// Corner kick: the delivery is the team's routine (SP-02, `set_piece::corner_delivery`).
+    pub corner: bool,
+    /// Throw-in (SP-06): thrown, from `ball` at hand height, at a throwing speed.
+    pub throw_in: bool,
+    /// Deciding before the ball arrives: time (s) until it reaches him and he plays it. The keeper keeps adjusting
+    /// meanwhile, so a first-time shot is priced against where he will be, not where he stands now.
+    pub arrives_in: f32,
 }
 
 impl Situation {
@@ -99,6 +106,9 @@ impl Situation {
             offside_exempt: false,
             direct: false,
             penalty: false,
+            corner: false,
+            throw_in: false,
+            arrives_in: 0.0,
         }
     }
 }
@@ -229,7 +239,12 @@ pub fn evaluate(state: &MatchState, cfg: &SimConfig, plan: &BallParams, sit: Sit
         from_w,
         pressure: pressure_at(state, side, from_w),
         counter: brain.phase == TeamPhase::In(InPhase::CounterAttack),
-        max_speed: p.kin.max_kick_speed,
+        max_speed: if sit.throw_in {
+            let tc = &cfg.tactics;
+            tc.sp06_speed_min + (tc.sp06_speed_max - tc.sp06_speed_min) * norm(p.attrs.strength)
+        } else {
+            p.kin.max_kick_speed
+        },
         scale: possession_value(fr.to_team(from_w), &cfg.ai) + cfg.ai.value_base,
         att: applied_attacking(&state.team(side).tactics, &p.attrs, p.instruction_familiarity(true), &cfg.tactics),
         premium: 0.0,
@@ -359,6 +374,16 @@ fn passes(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
                 specs.push((KickSpec::Ground { target: ahead, arrival_speed: 4.0 }, ahead, false, true));
             }
         }
+        // SP-06: a throw-in is thrown: every ball goes through the air, without spin.
+        if ctx.sit.throw_in {
+            specs = specs
+                .into_iter()
+                .filter(|s| !s.2)
+                .map(|(_, target, _, through)| {
+                    (KickSpec::Lofted { target, launch_angle: tc.sp06_angle, backspin: 0.0, sidespin: 0.0 }, target, true, through)
+                })
+                .collect();
+        }
         for (spec, target, lofted, through) in specs {
             let Some(sol) = solve_kick(ctx.sit.ball, &spec, ctx.plan, ctx.max_speed) else {
                 continue;
@@ -424,7 +449,9 @@ fn passes(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
             let kind = if lofted { KickKind::LoftedPass } else { KickKind::GroundPass };
             let label = format!(
                 "{} → {} {}",
-                if lofted {
+                if ctx.sit.throw_in {
+                    "throw"
+                } else if lofted {
                     "lofted pass"
                 } else if through {
                     "through ball"
@@ -529,7 +556,7 @@ fn shots(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
         let how = |foot| {
             let delay = ctx.kick_delay(dir, speed, Some(foot))?;
             let body_excess = if first_time { setup_turn(p.facing, dir, Some(foot), speed, ctx.max_speed, ex) } else { 0.0 };
-            Some(ShotHow { foot: Some(foot), body_excess, first_time, lead: delay })
+            Some(ShotHow { foot: Some(foot), body_excess, first_time, lead: ctx.sit.arrives_in + delay })
         };
         let Some(strong_how) = how(strong) else {
             continue;
@@ -542,7 +569,8 @@ fn shots(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
         }
         for h in feet {
             let xg = xg_of(h);
-            let p_goal = xg * placement * (-h.lead / ex.setup_shot_decay_s).exp();
+            // Set-up time lets defenders close in; the time until a first-time ball arrives is priced in the xG.
+            let p_goal = xg * placement * (-(h.lead - ctx.sit.arrives_in) / ex.setup_shot_decay_s).exp();
             // ATT-01 tie-break as a share of the shot's own value: a share of the local scale, which near the box is
             // two to three times a long shot's xG, made it 30 % of a 25 m shot's worth.
             let u = p_goal * (1.0 + cfg.tactics.att01_shot_bonus) - (1.0 - p_goal) * miss_cost;
@@ -857,6 +885,11 @@ pub fn decide(state: &MatchState, cfg: &SimConfig, plan: &BallParams, sit: Situa
     let opts = evaluate(state, cfg, plan, sit);
     if opts.is_empty() {
         return (Action::Hold, opts, 0);
+    }
+    if sit.corner
+        && let Some(i) = super::set_piece::corner_delivery(state, &sit, &opts)
+    {
+        return (opts[i].action, opts, i);
     }
     let p = &state.players[sit.carrier];
     let spell = ((state.time - p.control_since).max(0.0) / cfg.ai.decision_noise_hold_s) as u64;

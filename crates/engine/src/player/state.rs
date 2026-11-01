@@ -151,6 +151,8 @@ pub struct Player {
     pub ball_nearer_since: Option<f32>,
     /// Action decided before the ball arrives (ATT-06: first-time play under pressure).
     pub first_time: Option<KickPlan>,
+    /// Where he planned to play it (world).
+    pub first_time_at: Vec2,
     /// Direction (world) of the controlling first touch when receiving.
     pub receive_dir: Vec2,
     /// ATT-05 scanning (M6, `ai::scan`): his scans and snapshot of the opponents; the scans in the 10 s before he
@@ -227,6 +229,7 @@ impl Player {
             touch_cooldown_until: 0.0,
             ball_nearer_since: None,
             first_time: None,
+            first_time_at: Vec2::ZERO,
             receive_dir: Vec2::ZERO,
             // Staggered so that the players do not all scan on the same tick.
             scan: Scan { next: 0.07 * id as f32, ..Scan::default() },

@@ -141,6 +141,7 @@ The Laws are quoted from the IFAB's online text (2026/27, `/laws/latest/`; the p
 | IFAB-L12 | IFAB, Law 12 "Fouls and Misconduct" | https://www.theifab.com/laws/latest/fouls-and-misconduct/ | open | LAW-02, TRN-04: careless / reckless / excessive force, DOGSO considerations and the penalty-area exception, SPA, second caution |
 | IFAB-L13 | IFAB, Law 13 "Free Kicks" | https://www.theifab.com/laws/latest/free-kicks/ | open | SP-03: 9.15 m, 1 m from a wall of three or more |
 | IFAB-L14 | IFAB, Law 14 "The Penalty Kick" | https://www.theifab.com/laws/latest/the-penalty-kick/ | open | SP-04: positions of the keeper and the other players |
+| IFAB-L15 | IFAB, Law 15 "The Throw-in" | https://www.theifab.com/laws/latest/the-throw-in/ | open | SP-06: delivery with both hands from behind and over the head, opponents 2 m away, no goal directly |
 | IFAB-L16 | IFAB, Law 16 "The Goal Kick" | https://www.theifab.com/laws/latest/the-goal-kick/ | open | SP-05: in play when kicked, opponents outside the area |
 | IFAB-1920 | IFAB, "Laws of the Game 2019/20 coming into force 1 June…", 31 May 2019 | https://www.theifab.com/news/laws-of-the-game-2019-20-coming-into-force-1-june-and-new-mobile-application/ | open | SP-05: goal kick in play once kicked |
 | IFAB-CH23 | IFAB, "Laws of the Game 2023/24 – Law changes 2023/24"; Circular no. 27 (2023) | https://downloads.theifab.com/downloads/lotg_changes_23_24_en | open (PDF) | LAW-03: goal celebrations listed separately as time lost |
@@ -150,6 +151,7 @@ The Laws are quoted from the IFAB's online text (2026/27, `/laws/latest/`; the p
 | ACAD-C01 | Kubayi & Larkin, "Analysis of teams' corner kicks defensive strategies at the FIFA World Cup 2018", *IJPAS* 19(5), 2019, 809–819 | https://vuir.vu.edu.au/40479/ | open (repository version) | SP-01, SP-02: marking systems, posts, delivery targets and mix |
 | FIFA-SP04 | FIFA Training Centre, "Freeing the edge for attempts at goal" (Argentina, attacking corners), 2 Nov 2023 | https://www.fifatrainingcentre.com/en/game/game-analysis/set-plays/corners/attacking-corners.php | open | SP-02: 5–6 attackers, tiered, front post, short third man |
 | FIFA-SP05 | FIFA Training Centre, "Attacking corners: Targeting the front post against player-to-player marking systems", 9 Jan 2024 | https://www.fifatrainingcentre.com/en/game/game-analysis/set-plays/corners/targeting-the-front-post.php | open | SP-02: front-post flick-ons, 5–6 attackers |
+| LIN-TI01 | Linthorne & Everett, "Release angle for attaining maximum distance in the soccer throw-in", *Sports Biomechanics* 5(2), 2006, 243–260 | https://arxiv.org/abs/physics/0601149 | open (preprint) | SP-06: release speeds 12–19 m/s, angles 22–40°, release height 2.23 m |
 | PL-TT24 | Adrian Clarke, "Tactical trends of the 2024/25 season so far", premierleague.com, 16 Nov 2024 | https://www.premierleague.com/news/4171114 | open | SP-02: short corners 17.7–18.8 %; SP-05: short goal kicks |
 | ACAD-FK01 | Link, Kolbinger, Weber & Stöckl, "A topography of free kicks in soccer", *J. Sports Sciences* 34(24), 2016, 2312–2320 | https://www.bisp-surf.de/Record/PU201612008805 | abstract only | SP-03: wall size grows with centrality and proximity; goal ratio 5.9–10.9 % |
 | LOW-FK03 | Seattle Sounders, "The Anatomy of a Save: Breaking down Stefan Frei's diving stop…", 4 Oct 2017 (**club page, not coach education**) | https://soundersfc.com/post/2017/10/03/anatomy-save-breaking-down-stefan-freis-diving-stop-against-vancouver-whitecaps | open | SP-03: wall smaller further out; end man a yard outside the near post |
@@ -189,6 +191,10 @@ The BDFL is the German professional football coaches' association; its congress 
 - The FIFA Training Centre index pages listed for FIFA-ZD, FIFA-PR, FIFA-TD, FIFA-FL, FIFA-TCP and FIFA-ES return HTTP 403 to automated requests; the individual articles open normally and were used for verification.
 
 ## Verification log
+
+- 2026-11-01 (watch round): BDFL-PETER re-read for PRS-01's double-up (pressing variant 2): the receiver "steht geschlossen zum Spiel", the six "nicht aufdrehen zu lassen und schließt den Weg zum Tor", the striker doubling back "zielt auf den Ballgewinn ab", and on the wing "der Sechser … gemeinsam mit dem Außenverteidiger doppeln kann", all matched as fragments against the saved PDF text. USS-D §5 (game analysis, physical) for ATT-25's shielding: "holding opponents off the ball while shielding". Not found: a figure for how far a doubler may come from.
+
+- 2026-11-01 (watch round): IFAB-L15 fetched from the IFAB page and LIN-TI01 read in the arXiv preprint (`pdftotext`); the SP-06 quotes were checked against both.
 
 - 2026-10-31 (defence with individual brains, phase C): BDFL-PETER09 re-read for DEF-04 (Korrektur 2: let the striker coming short go, hand the crossing striker over) and BLK-02 ("Mannschaftstaktik": the deepest centre-back directs the defensive work); FA-EFL "space in behind" re-fetched for DEF-04 ("sprint back to mark, cover and defend their goal"). The German quotes were matched as fragments against the saved PDF text, which runs in three columns. Not found: a federation figure for when a marker hands a runner over or how long a call to step or drop is held.
 

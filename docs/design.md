@@ -18,6 +18,7 @@ cargo run --release -p match_lab -- --matches 100   # batch statistics + calibra
 cargo run --release -p match_lab -- --experiment data/experiments/high_line_fast_strikers.ron --matches 500  # A/B experiment
 cargo run --release -p match_lab -- --matches 300 --learn-value value.ron  # possession value by self-play
 cargo test --workspace                              # unit, principle-scenario and whole-match tests
+cargo run --release -p match_engine --example film -- [seed] [out.jsonl] [interval_s]  # record a match as JSON lines (frames + events) for offline viewing
 cargo run --release -p match_engine --example <name> # diagnostics: shots, saves, goals, defending, finishing, box, spell, duels, keeper, tackles, turnovers, dribbles, block, decisions, snapshot, passes, long_choice, long_defend, pressed_cal, pass_cal, lane_cal, high_balls, support, layers, intercepts, free_risk, styles, receptions, carry_cal, space_losses, hold_cal, shot_share, final_third, forward_moves
 ```
 
@@ -1767,7 +1768,8 @@ The real values (StatsBomb open data, footed open play; scripts in the scratchpa
   local value scale it was ≈ 0.006 at 25 m, 30 % of a long shot's worth. 22–30 m 31.7 → 28.7 %.
 - **`egotism_shot_factor`** (`PersonalityConfig`, 1.5, before hard-coded). Lowering it moves the level only a little:
   1.0 / 0.5 give 24.4 / 23.2 % at 22–30 m. It also flattens the spread between players, max / median 1.15 / 1.1
-  against real 1.7, while 1.5 gives 1.68. The spread is right and the level is layer 1's, so 1.5 stays.
+  against real 1.7, while 1.5 gives 1.68. The spread is right and the level is layer 1's, so 1.5 stays. (Replaced on
+  2026-11-01 by `egotism_shot_share`, a share of the shot's own xG; see "Watch round".)
 - **`hold_loss` 0.6 → 0.05** (`AiConfig`, before hard-coded). The hold option priced the ball lost before the next
   decision (0.3 s away) at up to 0.6 × pressure. `hold_cal` measures that under full pressure 97.5 % of holders still
   have it at the next decision, against 72 % priced. ATT-25's `pressed_loss` already charges the loss over the rest of
@@ -2516,6 +2518,66 @@ xG), and several further away (goals from short moves 30 → 25 %, counter lengt
 11.8 m, presses by 2–3 players 40 → 36 %, mid-block length 30.2 → 32.7 m); fouls and yellow cards drop below their
 references. The parametric model therefore stays the default; the two fields are kept in `data/value` for
 experiments and must be relearned after changes to the AI.
+
+## Watch round (2026-11-01)
+
+Matches were watched frame by frame instead of read from aggregates. `examples/film.rs` records a match as JSON lines
+(a header with the squads, then one line per frame every 0.2 s with positions, velocities, targets and movement
+labels of all 22 players, the ball and the phases, and one line per event); offline scripts render frames, list event
+sequences and measure spells, shapes and movements against the StatsBomb events (40 matches, real counts × 1.62).
+
+**Fixed** (each a mechanism that was wrong, not a tuning; benches in the catalog entries):
+
+| Finding | Cause | Change |
+|---|---|---|
+| A 10.7 m/s roller 0.9 m from the keeper passed him untouched | a failed save left the ball's path unchanged, also through his body | `PlayerConfig::gk_body_radius` 0.3 m: a failed save that passes within it comes off him (GK-01); save % +2–4 points per band |
+| 59 % of shots from beyond 22 m (real ≈ 40 %) | (a) the xG keeper race flew the ball at constant speed; (b) first-time shots were priced against the keeper where he stood at the pass; (c) 43 % of first-time shots were struck ≥ 8 m from the point they were priced at (a stale plan); (d) the egotism shot bonus was a share of the local value scale, half a long shot's xG | (a) drag-aware flight time in `analysis::keeper_open_share`; (b) `Situation::arrives_in`; (c) `att06_replan_m` 2 m: the receiver re-decides when the ball is further from the planned point (ATT-06); (d) `PersonalityConfig::egotism_shot_share` 0.5 × egotism × the shot's xG (replaces `egotism_shot_factor`). 30–40 m shots 7.2 → 3.6 per match, 22–30 m share 28 → 23 % (real 7.9) |
+| 86 % of corners were ground balls to the front post | the taker's softmax priced a ground ball to a marked attacker as possession 5 m from goal | SP-02 routine drawn per kick [ACAD-C01; PL-TT24]; shot within 10 s per corner 0.29 (0.29–0.36) |
+| Throw-ins were kicked along the ground | no throw | SP-06 thrown from 2.2 m at 32°, 12–19 m/s by strength [LIN-TI01] |
+| Forwards held the ball ≥ 6 s 3× as often as real ones | a holder always faced the opponents' goal, so the presser goal-side of him stood in front of him and never found him closed to play; the double-up the catalog cited was not implemented | ATT-25 shielding stance (back to the nearest opponent, [USS-D]); PRS-01 double-up `DefDuty::Double` [BDFL-PETER]; forwards' spells ≥ 6 s 12.7 → 9.8 per team-match (real 3.7) |
+| Box runners left their spots while the cross was in the air | the runners' passer switched to the cross's receiver inside the box, ending FT-03's "carrier wide" | `offer::Passer::cross_from` |
+
+After these (40 matches): goals 2.38, shots 14.2 / 12.9, xG 1.22 / 1.05, scorecard 6 of 32 targets, 5 of 10
+references. Two brains tests were re-measured: the wing-back test now plays four seeds (two gave 2.9–9.8 m per pair),
+the coordination test compares with factor 2 (ratio 3.2 over eight seeds; history in the file).
+
+**Open findings, grouped by cause.** Fixing findings one at a time pulled metrics against each other in earlier
+rounds (the ATT-11 knots, the value curve, the receiver price), so the open findings were collected and grouped first:
+
+- **P, both blocks too deep and too passive.** Mid-block line 31.7 m (real 37.2–37.9), length 30.3 m (22.5–29.1); low
+  block line 13.9 m (17.6–18.1) and width 27.5 m (35.5–36); keeper 11.3 m from goal (11.8–14.4, he keeps the GK-03 gap
+  to the line); offsides 1.5 (2.2–2.7); presses by 2–3 players 41 % (58, one team); fouls in the attacking third 8 %
+  (27–33); goal kicks short 84 % (46–56, nobody presses them). `blk05_line_mid` itself sits at 32.5 m.
+- **S, too few players ahead of the ball, nobody holds width.** In possession the back line is at 21 / 34 / 44 m by
+  phase (19.6 / 40.3 / 53.3) and the team 41 / 46 m wide in build-up and progression (54 / 55). Wide players' targets
+  are at 25–26 m from the centre line, their positions at 21–22 m: they switch movements every 0.6 s (median) and lag
+  behind each new target. In the final third 1.4 team-mates are ahead of the ball and 0.22 in the box. Consequences:
+  final-third support (3+ near) 6 % (54), box at a cross 0.59 (2.35), one-touch goals 12 % (63–80), goals from 1–5
+  passes 29 % (48–58), shots from 22–30 m 23 % (7.9), the centre-forward tackled 18–25 times per match (dispossessed or
+  failed dribbles 2.1 real), counters 32 m (63–77).
+- **R, contacts too clean.** Corners 1.5, throw-ins 10, goal kicks 5.6 per team (8.1 / 26 / 12.4); clearances 4.7 (29.3).
+  Corners come only from saves and blocks: no cleared or deflected cross goes behind.
+- **T, tempo at the back.** 1100–1240 open-play passes per team (792); keepers and defenders hold the ball ≥ 6 s 0.8 /
+  1.7 times per team-match (4.7 / 9.5). A pass every 2.3 s of possession (3.5 s real) also re-triggers every off-ball
+  player's movement choice, which feeds S's churn.
+- **K, keepers.** Save % at 0–6 m 58 (23); penalties 89 % scored on a small sample (78–80).
+- **F, running.** Second half −12 % (−6.3 to −7.7); high-intensity running ≈ 2× real.
+
+Interactions: P and S are coupled through the offside line (raising the in-possession lines alone gave 5.5 goals,
+ATT-11); more pressure (P) means fewer easy passes (T, good) but more long balls (bad) unless S gives the pressed
+defender a short forward option; better support (S) creates close chances that K's keepers save too often; R follows
+partly from P. F is independent, but faster positional pacing for S would raise running that is already at the real
+level (14.0 km per 90 in-play minutes against ≈ 9 km in 57) and high-intensity running that is already 2×: the width
+has to come from fewer switches, not faster ones.
+
+Experiment A1 (`blk05_line_mid` −15, the sourced 37.5 m, 40 matches): mid-block line 35.8 m, length 28.7 m, keeper
+13.1 m, offsides 2.21 (all in or near range); in-possession lines +1 m; S unchanged and counters shorter (26 m: the
+ball is won higher up). As expected, P alone does not fix S.
+
+**Plan.** (A) structure: the sourced block line together with S's mechanism (movement commitment, the low block's
+depth); (B) pressure: a second presser only if the more compact block does not bring it, then goal-kick pressure and
+fouls high up; (C) contacts: clearance and deflection outcomes from the contact physics, not a restart bias; (D)
+keepers at close range; T and F re-measured after A–C.
 
 ## Open after the plan
 

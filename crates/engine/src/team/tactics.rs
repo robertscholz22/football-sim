@@ -28,9 +28,11 @@ pub struct SetPieceTactics {
     pub zonal: u8,
     pub edge: bool,
     pub counter: u8,
-    /// SP-02: `sp02_attackers`, `sp02_short`.
+    /// SP-02: `sp02_attackers`, `sp02_short`, `sp02_short_share`, `sp02_delivery`.
     pub attackers: u8,
     pub short: bool,
+    pub short_share: f32,
+    pub delivery: [f32; 3],
     /// SP-03: `sp03_wall_max`, `sp03_line_m`.
     pub wall_max: u8,
     pub line_m: f32,
@@ -43,6 +45,8 @@ fn resolve_set_pieces(s: &SetPieceInstructions, tc: &TacticsConfig) -> SetPieceT
         counter: s.counter.unwrap_or(tc.sp01_counter).min(3),
         attackers: s.attackers.unwrap_or(tc.sp02_attackers).clamp(1, 8),
         short: s.short.unwrap_or(tc.sp02_short),
+        short_share: s.short_share.unwrap_or(tc.sp02_short_share).clamp(0.0, 1.0),
+        delivery: s.delivery.unwrap_or(tc.sp02_delivery).map(|w| w.max(0.0)),
         wall_max: s.wall_max.unwrap_or(tc.sp03_wall_max).clamp(1, 7),
         line_m: s.line_m.unwrap_or(tc.sp03_line_m).clamp(GOAL_AREA_DEPTH, 30.0),
     }
@@ -115,6 +119,8 @@ pub struct DefendingTactics {
     pub cross_line_depth: f32,
     /// PRS-05: `prs05_trap`.
     pub trap: f32,
+    /// PRS-01: `prs01_double_time_s`.
+    pub double_time: f32,
     pub box_max_gap: f32,
     pub box_shift_factor: f32,
     pub box_mid_distance: f32,
@@ -153,6 +159,7 @@ impl DefendingTactics {
             box_far: l(self.box_far, other.box_far),
             cross_line_depth: l(self.cross_line_depth, other.cross_line_depth),
             trap: l(self.trap, other.trap),
+            double_time: l(self.double_time, other.double_time),
             box_max_gap: l(self.box_max_gap, other.box_max_gap),
             box_shift_factor: l(self.box_shift_factor, other.box_shift_factor),
             box_mid_distance: l(self.box_mid_distance, other.box_mid_distance),
@@ -189,6 +196,7 @@ fn resolve_defending(h: BlockHeight, d: &DefendingInstructions, tc: &TacticsConf
         box_far: or(d.box_far, tc.box04_far, 0.0, 2.0 * HALF_LENGTH),
         cross_line_depth: or(d.cross_line_depth, tc.crs01_line_depth, GOAL_AREA_DEPTH, HALF_LENGTH),
         trap: or(d.trap, tc.prs05_trap, 0.0, 1.0),
+        double_time: or(d.double_time, tc.prs01_double_time_s, 0.0, 10.0),
         box_max_gap: or(d.box_max_gap, tc.box04_max_gap, 1.0, 30.0),
         box_shift_factor: or(d.box_shift_factor, tc.box04_shift_factor, 0.0, 1.0),
         box_mid_distance: or(d.box_mid_distance, tc.box04_mid_distance, 0.0, 60.0),
