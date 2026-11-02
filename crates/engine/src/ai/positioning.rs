@@ -15,7 +15,7 @@ use super::{movement, offer};
 use crate::config::{AiConfig, SimConfig, TacticsConfig};
 use crate::ball::BallMode;
 use crate::match_state::{MatchState, side_of};
-use crate::pitch::{GOAL_HALF_WIDTH, HALF_LENGTH, HALF_WIDTH, PENALTY_AREA_HALF_WIDTH, TeamFrame, Third, clamp_to_pitch, is_cross, third_of};
+use crate::pitch::{GOAL_HALF_WIDTH, HALF_LENGTH, HALF_WIDTH, PENALTY_AREA_HALF_WIDTH, Side, TeamFrame, Third, clamp_to_pitch, is_cross, third_of};
 use crate::player::{Intent, KickKind, Player, PlayerId, norm};
 use crate::rng::SimRng;
 use crate::team::{Channel, DefendingTactics, Movement, Role, adherence, applied_attacking, applied_defending, resolve_player};
@@ -126,11 +126,23 @@ pub fn recovery_point(ball: Vec2, x: f32, centre_back: bool, tc: &TacticsConfig)
     p
 }
 
+/// IND-06 against an opponent's pass in flight (not a shot): its reception point (world frame) and the time until it
+/// gets there (s). Like the first defender's (PRS-02), a recovery run is judged from where the ball will be played
+/// on, not from the ball on its way there: a pass at 15 m/s is not an attack at 15 m/s.
+pub fn opponent_pass_in_flight(state: &MatchState, side: Side) -> Option<(Vec2, f32)> {
+    state
+        .flight
+        .filter(|f| side_of(f.kicker) != side && f.kind != KickKind::Shot)
+        .map(|f| (f.target, (f.arrival_t - (state.time - f.start_t)).max(0.0)))
+}
+
 /// IND-06 with pacing (M6): the first point on the ball–goal line, from his recovery point `rp` towards goal, that he
-/// reaches before the ball, coming towards goal at `ball_speed`, does; and the speed (m/s) that gets him there just in
-/// time. A player far ahead of the ball runs back to a deeper point at the pace it allows instead of sprinting at a
-/// point the ball has passed before he can get there; against a slow build-up he jogs, against a counter he sprints.
-fn recovery_run(p: &Player, pos: Vec2, ball: Vec2, rp: Vec2, ball_speed: f32, centre_back: bool, tc: &TacticsConfig) -> (Vec2, f32) {
+/// reaches before the ball, at `ball` in `t0` s and coming towards goal at `ball_speed` from there, does; and the speed
+/// (m/s) that gets him there just in time. A player far ahead of the ball runs back to a deeper point at the pace it
+/// allows instead of sprinting at a point the ball has passed before he can get there; against a slow build-up he
+/// jogs, against a counter he sprints.
+#[allow(clippy::too_many_arguments)]
+fn recovery_run(p: &Player, pos: Vec2, ball: Vec2, t0: f32, rp: Vec2, ball_speed: f32, centre_back: bool, tc: &TacticsConfig) -> (Vec2, f32) {
     let line = TeamFrame::own_goal() - ball;
     let u0 = ((rp.x - ball.x) / line.x.min(-0.1)).clamp(0.0, 1.0);
     let mut out = (rp, 0.0);
@@ -140,7 +152,7 @@ fn recovery_run(p: &Player, pos: Vec2, ball: Vec2, rp: Vec2, ball_speed: f32, ce
         if centre_back {
             q.y = q.y.clamp(-tc.ind06_goal_half_width, tc.ind06_goal_half_width);
         }
-        let t_ball = ((q - ball).length() / ball_speed).max(0.5);
+        let t_ball = (t0 + (q - ball).length() / ball_speed).max(0.5);
         let d = (q - pos).length();
         out = (q, d / t_ball);
         if d <= 0.9 * p.kin.top_speed * t_ball {
@@ -475,13 +487,18 @@ fn defend(state: &MatchState, cfg: &SimConfig, id: PlayerId, anchor_t: Vec2, rng
             mv.tracks = true;
         }
         DefDuty::Recover => {
-            let rp = recovery_point(ball_t, anchor_t.x, p.out_role.is_centre_back(), tc);
-            // The ball comes towards goal at its own pace, at least `pace_ball_speed`.
-            let ball_speed = (-fr.to_team(state.ball.vel.truncate()).x).max(cfg.ai.pace_ball_speed);
-            let (q, need) = recovery_run(p, pos, ball_t, rp, ball_speed, p.out_role.is_centre_back(), tc);
+            // The ball comes towards goal at its own pace, at least `pace_ball_speed`; a pass in flight from its
+            // reception point once it gets there, at `pace_ball_speed` until the receiver shows his own.
+            let (ref_t, t0, ball_speed) = match opponent_pass_in_flight(state, side) {
+                Some((to, t0)) => (fr.to_team(to), t0, cfg.ai.pace_ball_speed),
+                None => (ball_t, 0.0, (-fr.to_team(state.ball.vel.truncate()).x).max(cfg.ai.pace_ball_speed)),
+            };
+            let rp = recovery_point(ref_t, anchor_t.x, p.out_role.is_centre_back(), tc);
+            let (q, need) = recovery_run(p, pos, ref_t, t0, rp, ball_speed, p.out_role.is_centre_back(), tc);
             mv.target = fr.to_world(q);
-            // Against a ball no faster than `pace_ball_speed` he runs back, he does not sprint.
-            let cap = if ball_speed > cfg.ai.pace_ball_speed { f32::MAX } else { cfg.ai.pace_run_speed };
+            // Against a ball no faster than `pace_ball_speed` he runs back, he does not sprint; against a pass in
+            // flight he goes as fast as its arrival needs.
+            let cap = if ball_speed > cfg.ai.pace_ball_speed || t0 > 0.0 { f32::MAX } else { cfg.ai.pace_run_speed };
             mv.urgency = (need.min(cap) / p.kin.top_speed).clamp(cfg.ai.position_min_urgency, 1.0);
             mv.pace_s = 0.0;
             mv.kind = Movement::Recover;

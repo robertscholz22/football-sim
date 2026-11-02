@@ -338,7 +338,9 @@ fn a_new_signing_causes_press_errors_that_his_team_mates_resolve_within_the_read
     // the watch round (2026-11-01; first-time replans, `att06_replan_m`) a receiver who meets the ball away from the
     // planned point controls it, and the defenders' references jump from the pass target to him; the settled side
     // marks a man twice more often for a moment (seeds 3–4: 111 ticks, all marking, no press error, against 333 on
-    // the signing's side, 192 of them press errors). Over seeds 1–8 the ratio is 3.2.
+    // the signing's side, 192 of them press errors). Over seeds 1–8 the ratio is 3.2. Set T (2026-11-02; carriers keep
+    // the ball longer, the second defender keeps his role with the first's hysteresis): seeds 3–4 settled 329, the
+    // signing's side 796 (389 press errors).
     assert!(2 * settled < new_side, "settled side {settled} error ticks, the signing's side {new_side}");
 }
 

@@ -1622,11 +1622,11 @@ impl Simulation {
             // run past it.
             let speed = (0.5 * p.kin.top_speed * (0.6 + 0.4 * drib)).max(p_vel.dot(dir));
             p.intent = Intent::Carry { dir, speed };
-            // Settle, then decide (decision interval scales with composure; ATT-05: faster after a recent scan with
-            // nobody close, slower on a stale picture).
+            // Settle, then look up and decide (by composure; ATT-05: faster after a recent scan with nobody close,
+            // slower on a stale picture; getting to the ball takes as long either way).
             let pc = &self.cfg.player;
             let scanned = scan::settle_factor(p, pressure > 0.4, now, &self.cfg.ai);
-            p.next_decision = now + scanned * (pc.settle_decision_s + pc.settle_composure_s * (1.0 - norm(p.attrs.composure)));
+            p.next_decision = now + pc.settle_decision_s + scanned * pc.settle_composure_s * (1.0 - norm(p.attrs.composure));
             self.dribble_touch(id, dir.normalize_or(Vec2::X), 0.8, now);
             self.state.players[id].touch_cooldown_until = now + 0.15;
         } else {
@@ -1962,13 +1962,15 @@ impl Simulation {
             } + if def.cautioned { self.cfg.rules.caution_margin } else { 0.0 };
             // IND-03: containing only works while he stays between the carrier and his goal. A carrier about to get
             // past him (goal-side of him within `ind03_last_ditch_s`) is challenged whatever the odds, unless a
-            // teammate covers behind him (DEF-02: the cover takes the carrier if the first defender is beaten).
+            // teammate covers behind him (DEF-02: the cover takes the carrier if the first defender is beaten). Past
+            // him relative to his own retreat: one who gives ground as fast as the carrier comes on still contains.
             let fr = self.state.frame(def.side);
-            let (car_t, vel_t, def_t) = (fr.to_team(car.pos), fr.to_team(car.vel), fr.to_team(def.pos));
+            let (car_t, def_t) = (fr.to_team(car.pos), fr.to_team(def.pos));
+            let closing = fr.to_team(car.vel - def.vel).x;
             let last_ditch = !from_behind
-                && vel_t.x < -1.0
+                && closing < -1.0
                 && car_t.x >= def_t.x - 0.3
-                && car_t.x + vel_t.x * self.cfg.tactics.ind03_last_ditch_s < def_t.x - 0.3
+                && car_t.x + closing * self.cfg.tactics.ind03_last_ditch_s < def_t.x - 0.3
                 && !self.covered(d, c, self.cfg.tactics.box03_cover_radius);
             let commit = shooting || last_ditch || loose || p_win >= min_p || self.rng.chance(hazard);
             if !commit {

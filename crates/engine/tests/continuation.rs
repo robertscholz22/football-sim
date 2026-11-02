@@ -1,5 +1,6 @@
-//! Continuation value of keeping the ball: a free carrier who holds or carries can still play the best pass on offer
-//! afterwards, so those options are worth part of that pass's lead over the value of his location.
+//! Continuation value of keeping the ball (look-ahead level 1, docs/player-brain.md 8.4): a carrier who holds or
+//! carries is worth the best pass he expects to have at his next decision. Free, he keeps what is on; a defender
+//! running into the lane takes it away, so he plays it now.
 
 use match_engine::Vec2;
 use match_engine::ai::analysis::possession_value;
@@ -42,21 +43,38 @@ fn hold(opts: &[OptionEval]) -> f32 {
     opts.iter().find(|o| o.kind == OptionKind::Hold).unwrap().u_opt
 }
 
+fn best_pass(opts: &[OptionEval]) -> f32 {
+    opts.iter().filter(|o| matches!(o.kind, OptionKind::Pass { .. })).map(|o| o.u_opt).fold(f32::MIN, f32::max)
+}
+
 #[test]
-fn holding_keeps_part_of_the_best_pass() {
+fn holding_keeps_the_best_pass_while_free() {
     let (sc, carrier) = scene();
     let cfg = sc.sim.cfg.clone();
-    let mut myopic = cfg.clone();
-    myopic.ai.continuation_halflife_s = 1e-4;
-    let (with, without) = (options(&sc, carrier, &cfg), options(&sc, carrier, &myopic));
-    let best_pass = with.iter().filter(|o| matches!(o.kind, OptionKind::Pass { .. })).map(|o| o.u_opt).fold(f32::MIN, f32::max);
+    let opts = options(&sc, carrier, &cfg);
+    let best = best_pass(&opts);
     let here = possession_value(home_frame(&sc).to_team(sc.sim.state.ball.ground_pos()), &cfg.ai);
-    let premium = best_pass - here;
+    let premium = best - here;
     assert!(premium > 0.0, "the free striker should be worth more than the ball where it is: premium {premium:+.4}");
-    // Free and unchallenged, holding loses nothing, so it gains exactly the faded premium.
-    let expected = premium * 0.5f32.powf(cfg.ai.onball_interval / cfg.ai.continuation_halflife_s);
-    let gained = hold(&with) - hold(&without);
-    assert!((gained - expected).abs() < 0.05 * expected, "hold gained {gained:+.5}, expected {expected:+.5}");
-    // Keeping the pass available is worth less than playing it now.
-    assert!(hold(&with) < best_pass, "hold {:+.4} vs best pass {best_pass:+.4}", hold(&with));
+    // Free and unchallenged, holding keeps what is on, less the small cost of standing still.
+    let lost = best - hold(&opts);
+    assert!(lost.abs() < 0.2 * premium, "hold {:+.5} vs best pass {best:+.5} (premium {premium:+.5})", hold(&opts));
+}
+
+#[test]
+fn a_defender_running_into_the_lane_makes_holding_worth_less_than_passing_now() {
+    let (mut sc, carrier) = scene();
+    let cfg = sc.sim.cfg.clone();
+    let fr = home_frame(&sc);
+    let calm = options(&sc, carrier, &cfg);
+    // An opponent 6 m beside the lane to the striker, running across it at 7 m/s.
+    let d = 11 + 7;
+    sc.place(d, fr.to_world(Vec2::new(12.5, 6.0)));
+    sc.sim.state.players[d].vel = fr.to_world(Vec2::new(0.0, -7.0));
+    let closing = options(&sc, carrier, &cfg);
+    let (gap_calm, gap_closing) = (best_pass(&calm) - hold(&calm), best_pass(&closing) - hold(&closing));
+    assert!(
+        gap_closing > gap_calm + 0.002,
+        "best pass − hold: {gap_closing:+.5} with the lane closing, {gap_calm:+.5} without"
+    );
 }

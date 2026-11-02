@@ -1,6 +1,6 @@
 //! On-ball decisions with the 3-layer model:
 //! 1. optimum `U_opt = p·V(success) − (1−p)·C(turnover)`, shaped by ATT-01/02/03/04/06/07/17/21 and TR-01; keeping
-//!    the ball (dribble, hold) adds the continuation value of the best pass, which stays available (`continuation`);
+//!    the ball (dribble, hold) adds the best pass he expects to have afterwards (look-ahead level 1, `ahead`);
 //! 2. manager-instruction biases, scaled by adherence (discipline, role familiarity; egotism resists "pass more");
 //! 3. personality biases (`personality`) and softmax noise whose temperature depends on decisions, composure,
 //!    confidence and pressure. Execution error is applied afterwards (`execution`).
@@ -113,6 +113,7 @@ impl Situation {
     }
 }
 
+#[derive(Clone)]
 struct Ctx<'a> {
     state: &'a MatchState,
     cfg: &'a SimConfig,
@@ -130,9 +131,11 @@ struct Ctx<'a> {
     scale: f32,
     /// The carrier's in-possession values (layer 1 blended with his team's instructions).
     att: AttackingTactics,
-    /// How much the best pass on offer is worth beyond the value of the ball's location (≥ 0): what keeping the ball
-    /// keeps available (`continuation`).
-    premium: f32,
+    /// Look-ahead level 1 (docs/player-brain.md 8.4): how much the best pass he expects to have at his next decision
+    /// is worth beyond the value of the ball's location (≥ 0), holding (`ahead` at `onball_interval`) or at the end of
+    /// a carry (at `carry_time`). What keeping the ball keeps available, or opens.
+    cont_hold: f32,
+    cont_carry: f32,
 }
 
 impl Ctx<'_> {
@@ -197,11 +200,10 @@ impl Ctx<'_> {
         v - loss * (v + self.cost_at(pt))
     }
 
-    /// Continuation value of keeping the ball until the next decision, `t` s away: the best pass on offer stays
-    /// available, less what defenders close meanwhile. Without it a free carrier would gain nothing by carrying and
-    /// would release the best pass at once; real carriers keep the ball until they are pressed.
-    fn continuation(&self, t: f32) -> f32 {
-        self.premium * 0.5f32.powf(t / self.cfg.ai.continuation_halflife_s)
+    /// Length (m) and duration (s) of a carry: knock-ons in space, short under pressure.
+    fn carry(&self) -> (f32, f32) {
+        let len = if self.pressure > 0.6 { 3.5 } else { 6.0 };
+        (len, len / carry_speed(self.p) + 0.15)
     }
 
     /// ATT-02: turnover cost weighted by the third in which the ball is lost.
@@ -247,7 +249,8 @@ pub fn evaluate(state: &MatchState, cfg: &SimConfig, plan: &BallParams, sit: Sit
         },
         scale: possession_value(fr.to_team(from_w), &cfg.ai) + cfg.ai.value_base,
         att: applied_attacking(&state.team(side).tactics, &p.attrs, p.instruction_familiarity(true), &cfg.tactics),
-        premium: 0.0,
+        cont_hold: 0.0,
+        cont_carry: 0.0,
     };
     let mut opts = Vec::new();
     if sit.penalty {
@@ -255,8 +258,14 @@ pub fn evaluate(state: &MatchState, cfg: &SimConfig, plan: &BallParams, sit: Sit
         return opts;
     }
     passes(&ctx, &mut opts);
-    let best_pass = opts.iter().map(|o| o.u_opt).fold(f32::MIN, f32::max);
-    ctx.premium = (best_pass - possession_value(ctx.from, &cfg.ai)).max(0.0);
+    if !sit.restart && !sit.gk_hands {
+        let here = possession_value(ctx.from, &cfg.ai);
+        let mut proj = state.clone();
+        ctx.cont_hold = ahead(&ctx, &mut proj, cfg.ai.onball_interval, here);
+        if !sit.first_time {
+            ctx.cont_carry = ahead(&ctx, &mut proj, ctx.carry().1, here);
+        }
+    }
     if sit.direct {
         shots(&ctx, &mut opts);
     }
@@ -295,6 +304,42 @@ pub fn evaluate(state: &MatchState, cfg: &SimConfig, plan: &BallParams, sit: Sit
 
     layer2_and_3(&ctx, &mut opts);
     opts
+}
+
+/// Look-ahead level 1 for the carrier (docs/player-brain.md 8.4: "the carrier is a brain too"): the best pass he
+/// expects to have `t` s from now, beyond `here`, the value of the ball's location (≥ 0). Team-mates go towards the
+/// offers he reads (`reading::seen`, so a team-mate he knows less he reads later), everybody else carries on with
+/// his velocity; `proj` is a copy of the state that takes those positions. A free carrier keeps what is on and
+/// gains what his team-mates' movements open; defenders closing the lanes take it away. Real carriers keep the ball
+/// until a movement is on or they are pressed.
+fn ahead(ctx: &Ctx, proj: &mut MatchState, t: f32, here: f32) -> f32 {
+    let (state, ai, me) = (ctx.state, &ctx.cfg.ai, ctx.p);
+    for (q, out) in state.players.iter().zip(proj.players.iter_mut()) {
+        if q.id == me.id {
+            continue;
+        }
+        let offer = if q.side == me.side { super::reading::seen(state, ai, me.id, q).1 } else { None };
+        let to = match offer {
+            // At the pace of a positional move (`pace_position_s`, `pace_run_speed`), or faster if he already is.
+            Some(o) => {
+                let to = o - q.pos;
+                let speed = q.vel.length().max((to.length() / ai.pace_position_s).min(ai.pace_run_speed));
+                to.clamp_length_max(speed * t)
+            }
+            None => q.vel * t,
+        };
+        out.pos = clamp_to_pitch(q.pos + to, 0.0);
+    }
+    let c = Ctx { state: proj, ..ctx.clone() };
+    let mut opts = Vec::new();
+    passes(&c, &mut opts);
+    (opts.iter().map(|o| o.u_opt).fold(f32::MIN, f32::max) - here).max(0.0)
+}
+
+/// Speed (m/s) at which `p` carries the ball.
+fn carry_speed(p: &Player) -> f32 {
+    let drib = effective(p.attrs.dribbling, AttrClass::Technical, p.confidence, p.energy);
+    0.8 * p.kin.top_speed * (0.6 + 0.4 * drib)
 }
 
 fn dir_of(o: &OptionEval) -> Vec2 {
@@ -606,11 +651,10 @@ pub fn dribble_lead(pressure: f32) -> f32 {
 }
 
 /// Probability that the carrier keeps the ball while dribbling `len` metres in world direction `dir`, whether an
-/// opponent stands in the way (a take-on), how pressed he is at the end (ATT-25), and when he gets there (s).
-fn dribble_keep(ctx: &Ctx, dir: Vec2, len: f32) -> (f32, bool, f32, f32) {
+/// opponent stands in the way (a take-on) and how pressed he is at the end (ATT-25).
+fn dribble_keep(ctx: &Ctx, dir: Vec2, len: f32) -> (f32, bool, f32) {
     let (state, cfg, p) = (ctx.state, ctx.cfg, ctx.p);
-    let drib = effective(p.attrs.dribbling, AttrClass::Technical, p.confidence, p.energy);
-    let v_carry = 0.8 * p.kin.top_speed * (0.6 + 0.4 * drib);
+    let v_carry = carry_speed(p);
     let mut keep = 1.0;
     let mut take_on = false;
     let mut opp_end = f32::MAX;
@@ -636,13 +680,13 @@ fn dribble_keep(ctx: &Ctx, dir: Vec2, len: f32) -> (f32, bool, f32, f32) {
         keep *= 1.0 - best * tackle_win_prob(o, p, false, &cfg.duel);
     }
     let t_end = len / v_carry + 0.15;
-    (keep, take_on, pressed_at(t_end, opp_end, cfg), t_end)
+    (keep, take_on, pressed_at(t_end, opp_end, cfg))
 }
 
 fn dribbles(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
     let cfg = ctx.cfg;
     let tc = &cfg.tactics;
-    let len = if ctx.pressure > 0.6 { 3.5 } else { 6.0 };
+    let len = ctx.carry().0;
     for deg in [0.0f32, 35.0, -35.0, 70.0, -70.0, 115.0, -115.0] {
         let dir_t = Vec2::from_angle(deg.to_radians());
         let end = ctx.from + dir_t * len;
@@ -654,9 +698,9 @@ fn dribbles(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
             continue;
         }
         let dir = ctx.fr.to_world(dir_t);
-        let (keep, take_on, pressed, t_end) = dribble_keep(ctx, dir, len);
-        // ATT-06: the continuation (the best pass kept for later) is only worth having while free.
-        let mut v = possession_value(end, &cfg.ai) + ctx.continuation(t_end) * (1.0 - pressed);
+        let (keep, take_on, pressed) = dribble_keep(ctx, dir, len);
+        // ATT-06: the continuation (the best pass at the end of the carry) is only worth having while free.
+        let mut v = possession_value(end, &cfg.ai) + ctx.cont_carry * (1.0 - pressed);
         let mut rules = Vec::new();
         if dir_t.x > 0.7 {
             v += ctx.scale * tc.att01_forward_dribble_bonus;
@@ -700,7 +744,7 @@ fn hold(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
     // ATT-06: under pressure the ball is played now, so the continuation (the best pass kept for later) is only
     // worth having while free. Credited at every decision, it kept a pressed carrier deferring the pass step after
     // step (each one cheap on its own) until the tackle came (`hold_cal` example).
-    let v = possession_value(ctx.from, &cfg.ai) - 0.0005 + ctx.continuation(cfg.ai.onball_interval) * (1.0 - pressed);
+    let v = possession_value(ctx.from, &cfg.ai) - 0.0005 + ctx.cont_hold * (1.0 - pressed);
     let mut u = keep * ctx.secured(v, ctx.from, ctx.att.pressed_loss * pressed) - (1.0 - keep) * ctx.cost_at(ctx.from);
     let mut rules = vec!["ATT-06"];
     if pressed > 0.5 {
@@ -845,6 +889,10 @@ pub fn decision_temperature(p: &Player, cfg: &SimConfig, scale: f32, pressure: f
 /// together they get the weight of the best of them, shared in proportion to their own weights. Otherwise a far
 /// team-mate, who can also be reached with a lofted ball, would count twice against a near one. So do the dribble
 /// directions, the ways to carry it: otherwise the number of directions tried would make carrying more likely.
+/// And the passes to the different team-mates are one decision too, to pass (ATT-01: the carrier's choice is between
+/// shooting, passing, dribbling and keeping it [USS-D]; whom to pass to comes after): together they get the weight of
+/// the best of them, shared among the team-mates in proportion to their own. Otherwise every team-mate on offer
+/// would make a release more likely than keeping the ball, however much keeping it is worth.
 pub fn softmax(opts: &mut [OptionEval], temp: f32) {
     let max = opts.iter().map(|o| o.utility()).fold(f32::MIN, f32::max);
     let shots = opts.iter().filter(|o| matches!(o.kind, OptionKind::Shot { .. })).count().max(1) as f32;
@@ -855,17 +903,27 @@ pub fn softmax(opts: &mut [OptionEval], temp: f32) {
         _ => None,
     };
     let mut sum = 0.0;
-    for i in 0..opts.len() {
-        let mut prob = w[i];
-        if matches!(opts[i].kind, OptionKind::Shot { .. }) {
-            prob /= shots;
-        }
-        if let Some(g) = group(&opts[i]) {
-            let members = (0..opts.len()).filter(|&j| group(&opts[j]) == Some(g));
-            let (best, total) = members.fold((0.0f32, 0.0f32), |(b, s), j| (b.max(w[j]), s + w[j]));
-            prob *= best / total.max(1e-12);
-        }
-        opts[i].prob = prob;
+    let mut prob: Vec<f32> = (0..opts.len())
+        .map(|i| {
+            let mut prob = w[i];
+            if matches!(opts[i].kind, OptionKind::Shot { .. }) {
+                prob /= shots;
+            }
+            if let Some(g) = group(&opts[i]) {
+                let members = (0..opts.len()).filter(|&j| group(&opts[j]) == Some(g));
+                let (best, total) = members.fold((0.0f32, 0.0f32), |(b, s), j| (b.max(w[j]), s + w[j]));
+                prob *= best / total.max(1e-12);
+            }
+            prob
+        })
+        .collect();
+    let passes = (0..opts.len()).filter(|&i| matches!(group(&opts[i]), Some(r) if r >= 0));
+    let (best, total) = passes.clone().fold((0.0f32, 0.0f32), |(b, s), i| (b.max(w[i]), s + prob[i]));
+    for i in passes {
+        prob[i] *= best / total.max(1e-12);
+    }
+    for (o, prob) in opts.iter_mut().zip(prob) {
+        o.prob = prob;
         sum += prob;
     }
     for o in opts.iter_mut() {

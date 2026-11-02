@@ -11,7 +11,7 @@
 use glam::Vec2;
 
 use super::analysis::possession_value;
-use super::positioning::{cover_point, in_shooting_range, shot_block_point};
+use super::positioning::{cover_point, in_shooting_range, opponent_pass_in_flight, shot_block_point};
 use super::reading;
 use super::shape::slot_point;
 use super::world::{Times, World};
@@ -874,10 +874,16 @@ fn assign_defence_duties(
         fr.to_world(cover_point(first_t, ref_t, tc))
     };
     let cover_times = reading::estimated(state, me, world.time_to_meet(side, cover, carrier_vel));
+    // DEF-03: the second defender with the first's hysteresis: he keeps the role while no team-mate is clearly sooner.
     let second = fixed.iter().position(|f| *f == Some(DefDuty::Second)).or_else(|| {
-        (0..PLAYERS_PER_TEAM)
-            .filter(|&i| i != first && !squad[i].is_gk() && fixed[i].is_none())
-            .min_by(|&a, &c| cover_times[a].total_cmp(&cover_times[c]).then(a.cmp(&c)))
+        let eligible = |i: usize| i != first && !squad[i].is_gk() && fixed[i].is_none();
+        let best = (0..PLAYERS_PER_TEAM)
+            .filter(|&i| eligible(i))
+            .min_by(|&a, &c| cover_times[a].total_cmp(&cover_times[c]).then(a.cmp(&c)))?;
+        let kept = prev.def_duties.iter().position(|d| *d == DefDuty::Second).filter(|&i| {
+            i != best && eligible(i) && cover_times[i] <= cover_times[best] + tc.def03_role_hysteresis_s
+        });
+        Some(kept.unwrap_or(best))
     });
     if let Some(s) = second {
         b.def_duties[s] = DefDuty::Second;
@@ -919,6 +925,8 @@ fn assign_defence_duties(
     }
 
     let recovery = b.phase == TeamPhase::Out(OutPhase::Recovery);
+    // IND-06: ahead of the ball judged against where an opponent's pass in flight will be received.
+    let recovery_ref = opponent_pass_in_flight(state, side).map_or(b.ball_ref, |(to, _)| fr.to_team(to));
     let mut marked: Vec<PlayerId> = opp_carrier.into_iter().collect();
     let ball_ref = b.ball_ref;
     // DEF-04: is opponent `o` in the zone of a defender anchored at `anchor` (zone widened by `margin`)?
@@ -986,7 +994,7 @@ fn assign_defence_duties(
             continue;
         }
         // IND-06: ahead of the ball although the shape wants him behind it → recovery run.
-        if pos.x > b.ball_ref.x + 1.0 && anchor.x < b.ball_ref.x {
+        if pos.x > recovery_ref.x + 1.0 && anchor.x < recovery_ref.x {
             b.def_duties[i] = DefDuty::Recover;
             continue;
         }

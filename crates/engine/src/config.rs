@@ -149,8 +149,9 @@ pub struct PlayerConfig {
     /// Settling the ball after gaining control, or after a knock-on, the carrier closes any gap to it within this
     /// time (s) to play it.
     pub settle_catch_s: f32,
-    /// After a controlling touch the player's next decision (and so his next kick) comes this long (s) later, plus
-    /// `settle_composure_s` × (1 − composure): he has to get to the ball and set himself. StatsBomb: of passes made
+    /// After a controlling touch the player's next decision (and so his next kick) comes this long (s) later: he has to
+    /// get to the ball and set himself. Then `settle_composure_s` × (1 − composure) to look up, shorter or longer by his
+    /// last scan (ATT-05, `scan::settle_factor`), which does not shorten getting to the ball. StatsBomb: of passes made
     /// after a controlled reception, only ≈ 9 % come within 0.5 s of it.
     pub settle_decision_s: f32,
     pub settle_composure_s: f32,
@@ -903,10 +904,6 @@ pub struct AiConfig {
     /// A possession value field learned by self-play (M8, `match_lab --learn-value`) in place of the parametric model
     /// above; `None` keeps the parametric model.
     pub value_grid: Option<ValueGrid>,
-    /// Continuation value of keeping the ball (`on_ball`): a carrier who dribbles or holds can still play the best
-    /// pass on offer afterwards, so its lead over the value of his location is added to the end point's value. It
-    /// fades with the time until he can play it, as defenders close the lane; this is its half-life (s).
-    pub continuation_halflife_s: f32,
     /// xG logistic model: logit = a + b·(goal angle) − c·distance − lateral·|offset from the centre line| (m), for a
     /// reference finisher's controlled strong-foot shot, keeper set, nobody in the way (fit to StatsBomb open data with
     /// first-time and weak-foot terms; first time is priced by `finish_factor`).
@@ -975,8 +972,9 @@ pub struct AiConfig {
     /// (100), × `scan_pressed_share` with an opponent within 1 m, the full rate from 4 m. Sourced: 0.44 ± 0.30 scans/s
     /// in the 10 s before receiving, fewest with an opponent within 1 m [JORDET20]. Field of view
     /// `scan_view_half_angle` (deg) around the facing; outside it, an opponent is where the last scan saw him, carried
-    /// on for at most `scan_extrapolate_s`. Settling after control × (1 − `scan_settle_gain`) with a scan within
-    /// `scan_fresh_s` and no pressure, × (1 + `scan_settle_gain`) with none within `scan_stale_s`. Calibrated: pass
+    /// on for at most `scan_extrapolate_s`. Looking up after control (`PlayerConfig::settle_composure_s`) ×
+    /// (1 − `scan_settle_gain`) with a scan within `scan_fresh_s` and no pressure, × (1 + `scan_settle_gain`) with none
+    /// within `scan_stale_s`. Calibrated: pass
     /// completion rises with the scans before receiving (64 / 68 / 81 % for low / medium / high [JORDET13]).
     pub scan_rate_min: f32,
     pub scan_rate_max: f32,
@@ -1067,7 +1065,6 @@ impl Default for AiConfig {
             value_width: 22.0,
             value_shot_share: 0.55,
             value_grid: None,
-            continuation_halflife_s: 1.0,
             xg_a: -0.18,
             xg_b: 0.97,
             xg_c: 0.116,

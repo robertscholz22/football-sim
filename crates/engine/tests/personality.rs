@@ -5,7 +5,7 @@ use match_engine::ai::analysis::gk01_spot;
 use match_engine::ai::on_ball::{OptionEval, Situation, decide, evaluate};
 use match_engine::ai::personality::OptionKind;
 use match_engine::pitch::Side;
-use match_engine::player::PlayerId;
+use match_engine::player::{Player, PlayerId};
 use match_engine::scenario::Scenario;
 use match_engine::team::Role;
 
@@ -39,10 +39,23 @@ fn scene() -> (Scenario, PlayerId) {
 }
 
 fn options(sc: &Scenario, carrier: PlayerId, ego: f32, instinct: f32) -> Vec<OptionEval> {
+    options_with(sc, carrier, ego, instinct, |_| ())
+}
+
+/// As `options`, for a player at his best: full confidence and energy (with instinct 100, the exact optimum).
+fn options_at_best(sc: &Scenario, carrier: PlayerId, ego: f32, instinct: f32) -> Vec<OptionEval> {
+    options_with(sc, carrier, ego, instinct, |p| {
+        p.confidence = 1.0;
+        p.energy = 1.0;
+    })
+}
+
+fn options_with(sc: &Scenario, carrier: PlayerId, ego: f32, instinct: f32, f: impl Fn(&mut Player)) -> Vec<OptionEval> {
     let mut st = sc.sim.state.clone();
-    let a = &mut st.players[carrier].attrs;
-    a.egotism = ego;
-    a.instinct = instinct;
+    let p = &mut st.players[carrier];
+    p.attrs.egotism = ego;
+    p.attrs.instinct = instinct;
+    f(p);
     evaluate(&st, &sc.sim.cfg, &sc.sim.plan, Situation::open_play(carrier, st.ball.pos))
 }
 
@@ -56,13 +69,15 @@ fn egotism_raises_self_actions() {
     let share = |ego| self_share(&options(&sc, carrier, ego, 47.0));
     let (humble, average, egotist) = (share(0.0), share(50.0), share(100.0));
     assert!(humble < average && average < egotist, "self-action share by egotism 0/50/100: {humble:.2} {average:.2} {egotist:.2}");
-    assert!(egotist > 3.0 * humble, "egotism effect too weak: {humble:.2} → {egotist:.2}");
+    // Holding is worth almost as much as the pass here (the striker stays free while he keeps the ball; look-ahead
+    // level 1), so even a humble player keeps it at times: the effect shows in how rarely the egotist passes.
+    assert!(1.0 - egotist < (1.0 - humble) / 3.0, "egotism effect too weak: pass share {:.2} → {:.2}", 1.0 - humble, 1.0 - egotist);
 }
 
 #[test]
 fn humble_player_with_perfect_instinct_plays_the_optimal_pass() {
     let (sc, carrier) = scene();
-    let opts = options(&sc, carrier, 0.0, 100.0);
+    let opts = options_at_best(&sc, carrier, 0.0, 100.0);
     let best = opts.iter().max_by(|a, b| a.u_opt.total_cmp(&b.u_opt)).unwrap();
     assert!(matches!(best.kind, OptionKind::Pass { .. }), "optimum in a 2 v 1 should be the pass, got {}", best.label);
     assert!(best.prob > 0.95, "optimal pass chosen with probability {:.2}", best.prob);

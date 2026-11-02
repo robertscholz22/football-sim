@@ -101,8 +101,8 @@ pub fn opponents<'a>(state: &'a MatchState, viewer: &'a Player, ai: &'a AiConfig
     })
 }
 
-/// Settle-time factor after controlling the ball: 1 − `scan_settle_gain` with a scan within `scan_fresh_s` and no
-/// pressure, 1 + `scan_settle_gain` with none within `scan_stale_s`, 1 otherwise.
+/// Factor on looking up after controlling the ball (`PlayerConfig::settle_composure_s`): 1 − `scan_settle_gain` with a
+/// scan within `scan_fresh_s` and no pressure, 1 + `scan_settle_gain` with none within `scan_stale_s`, 1 otherwise.
 pub fn settle_factor(p: &Player, pressed: bool, now: f32, ai: &AiConfig) -> f32 {
     let age = now - p.scan.last;
     if age <= ai.scan_fresh_s && !pressed {

@@ -390,7 +390,7 @@ row is which.
 | lofted 30–45 m passes (`passes`, `high_balls`) | 100 per match, 68 % complete, kick to first contact 2.52 s, aerial duel 28 % | StatsBomb ≈ 56, 48 %, 2.45–2.56 s, 14–15 % | **high**: chosen ≈ 1.8× as often (see "Lofted volume") |
 | longest live ball standstill (lab) | 7.4–10.8 s | < 30 s (stuck-state guard) | ok |
 | receiver loses the ball before his next pass or shot (`settle`) | 8 % | 5.9 % (StatsBomb) | ok |
-| receipt → next pass or shot (`settle`): first time / 0.1–0.5 s / median / > 1 s | 31 % / 10 % / 0.58 s / 24 % | 18 % / 7 % / 1.22 s / 59 % (StatsBomb; shots alone: 47 % first time) | quick: few first-time balls, many passes at the first decision (see "Continuation value and settle time") |
+| receipt → next pass or shot (`settle`): first time / 0.1–0.5 s / median / > 1 s | 21 % / 13 % / 0.72 s / 40 % (set T, 2026-11-02; was 31 / 10 / 0.58 / 24) | 18 % / 7 % / 1.22 s / 59 % (StatsBomb; shots alone: 47 % first time) | quick: free carriers still release without carrying (see "Set T") |
 | ground-pass receptions by the nearest opponent at the receipt 0–1.5 / 1.5–3 / 3–5 / 5–8 / 8+ m (`receptions`): first time; lost before the next pass or shot, of all / of the controlled ones | 69 / 63 / 56 / 27 / 19 %; 9.8 / 8.6 / 5.9 / 4.1 / 1.2 %; 32 / 23 / 13 / 5.6 / 1.5 % (a heavy touch counts as lost only when the opponents win the ball) | 24.5 / 24.7 / 16 / 6.5 / 2.2 %; 20 / 11 / 6.3 / 2.6 / 0.8 % (plus fouls won 7.1 / 3.5 / 1.8 / 0.9 / 0.2 %); 27 / 15 / 7.5 / 2.7 / 0.8 % (StatsBomb 360, style-invariant) | **first time 3–9×; losses in space 2–2.5×** (see "Carry in space") |
 | nearest opponent to the passer at a pass (`support`) | 4.2 m | 2.9 m (StatsBomb 360) | far |
 | support at a pass: nearest team-mate, team-mates within 10 m (`support`) | 8.7 m, 1.02 | 8.5 m, 1.09 (StatsBomb 360) | ok |
@@ -895,6 +895,11 @@ passers decline most free far targets that the engine takes. Two candidates, bot
   away (real 8.5 m), and short options are pressed in a third of decisions.
 
 ### Continuation value and settle time (2026-10-28)
+
+Superseded in part by set T (2026-11-02, see "Set T: tempo on the ball"): the continuation is now the carrier's
+look-ahead level 1, the best pass he expects at his next decision with team-mates on their way to their offers and
+opponents carrying on, instead of the best pass now faded with a half-life; and the settle time is split into getting
+to the ball (unchanged by a scan) and looking up (shortened or lengthened by it).
 
 The long-ball round found that engine passers release the ball sooner than real ones (`settle`, `support`, 10
 matches; StatsBomb receipt → next pass or shot of the same player, 40 matches):
@@ -2664,6 +2669,50 @@ forward 80 % of the time, where real passes from there come from full-backs (24 
 running out of possession is the excess (films: 8.25 km and 1.94 km high-intensity against 6.2 and 0.80 in
 possession; real out = in × 1.07 and × 1.30 [JEROME23]), so in-possession running is at the real level and the lag
 has to come out of churn, not speed.
+
+**Set T: tempo on the ball (2026-11-02).** Films (seeds 11–14) and StatsBomb (40 matches): a free carrier released
+at his first decision. Reception → pass median 0.48 s (real 1.22), 41 % of releases 0.3–0.7 s after the reception
+(real 8 %), spells over 2 s 13 % (28 %), 1095–1279 passes per team (792). Causes: (T1) the continuation of keeping the
+ball was the best pass now with a 1 s half-life, always below playing it now; (T2) the softmax gave every team-mate
+his own weight, so "pass to someone" outweighed keeping the ball however much keeping it was worth; (T3) recovery runs
+read an opponent's pass in flight as an attack at the ball's speed (a 15 m/s pass put the recovery point 33 m away
+and made the run a sprint); (T4) the settle law's scan factor also shortened getting to the ball.
+
+Changes:
+- T1, look-ahead level 1 for the carrier (docs/player-brain.md 8.4, `on_ball::ahead`): holding and carrying are
+  worth the best pass he expects at his next decision (`onball_interval` when holding, the carry time when carrying),
+  priced on a copy of the state where team-mates go towards the offers he reads (`reading::seen`) and everybody else
+  carries on with his velocity; scaled by (1 − pressed) as before. `continuation_halflife_s` is gone.
+- T2, ATT-01's frame [USS-D: shot, pass or dribble]: the passes together get the weight of the best pass, shared
+  among the team-mates in proportion to their own (as the shot variants, the ways to one team-mate and the dribble
+  directions already were).
+- T3, IND-06: against an opponent's pass in flight the recovery trigger, point and pace are judged from its
+  reception point and arrival time (as PRS-02 judges the first defender's), at `pace_ball_speed` from there.
+- T4: settling = `settle_decision_s` + scan factor × `settle_composure_s` × (1 − composure).
+- Exposed by the longer spells and added to the set: IND-03's "about to get past him" uses the carrier's speed
+  relative to the defender's (one giving ground as fast still contains); DEF-03's hysteresis now holds for the second
+  defender as the catalog says (it was re-picked every tick).
+
+| 40 matches; films 11–14 | S2 | T1 | T1 + T2 | set T |
+|---|---|---|---|---|
+| reception → pass median / mean (real 1.22 / 1.59 s) | 0.48 / 0.88 | 0.56 / 1.00 | 0.72 / 1.47 | 0.72 / 1.47 |
+| > 1 s / > 2 s / > 3 s (59 / 28 / 15 %) | 24 / 13 / – | 29 / 15 / 7 | 40 / 24 / 14 | 40 / 24 / 14 |
+| first time (18 %) | 25 | 27 | 23 | 21 |
+| passes per team (792) | 1095 / 1279 | 1020 / 1211 | 885 / 999 | 872 / 1000 |
+| keepers' free spells < 0.3 s (12 %) | 51 | 30 | 26 | 27 |
+| goals; shots per team | 2.22; 15.3 / 11.6 | 1.80; 16.4 / 12.1 | 3.00; 23.0 / 15.6 | 2.65; 20.2 / 15.6 |
+| tackles per team; fouls; yellow cards (≈ 25; 19.9; 3.5) | 68; 18.7; 3.6 | 74; 19.2; 3.6 | 99; 24.7; – | 96; 23.1; 4.6 |
+| out of possession km / HI per player-90 (≈ 6.7 / 0.6) | 8.26 / 1.97 | 8.01 / 1.78 | 7.95 / 1.69 | 8.10 / 1.72 |
+| recovery run: target distance, speed | 32.9 m, 4.72 m/s | 24.5, 4.40 | 24.2, 4.39 | 24.0, 4.39 |
+| out-of-possession label switches per player-minute | 32.9 | 31.9 | 31.1 | 29.9 |
+
+Carries (path median, duration; StatsBomb carries within spells): pressed midfielders 4.1 m / 1.4 s (real 4.2 / 1.5),
+pressed forwards 6.2 / 2.2 (4.8 / 1.7), but free defenders 1.3 m / 0.6 s (3.9 / 1.7) and free midfielders 1.4 / 0.6
+(4.1 / 1.6): a free carrier still passes instead of carrying first. The longer spells cost duels: carries are tackled
+far more often than real (IND-03 last ditch 68 and loose touches 60 per match, touches 1.6 m out with the defender in
+front in half of them; the old "carry in space loses the ball 2–10× as often per second" finding), so tackles, fouls
+and cards rose. Next set: duels on the carry. Single-threaded seconds per match in the 40-match lab 28 → 41 (more
+decisions per spell, each with two look-ahead pass evaluations).
 
 ## Open after the plan
 
