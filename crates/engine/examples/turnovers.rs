@@ -30,6 +30,7 @@ fn main() {
     // Regains in open play, by distance from the goal the winning team attacks (15 m bins).
     let mut regain_bins = [0u32; 7];
     let mut causes: BTreeMap<&str, u32> = BTreeMap::new();
+    let mut cause_bins: BTreeMap<&str, [u32; 7]> = BTreeMap::new();
     let mut restarts = 0u32;
     // Possession lengths in open play.
     let mut poss_durations: Vec<f32> = Vec::new();
@@ -90,6 +91,7 @@ fn main() {
                         cause = if prev_control.is_some() { "nicked off a dribble" } else { "loose ball picked up" };
                     }
                     *causes.entry(cause).or_default() += 1;
+                    cause_bins.entry(cause).or_default()[bin(HALF_LENGTH - x)] += 1;
                     poss_durations.push(now - poss_since);
                 }
                 poss = side;
@@ -162,6 +164,10 @@ fn main() {
     cv.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
     for (c, n) in cv {
         println!("  {c:<22} {:>6.1} per match  ({:.0} %)", per(n), 100.0 * n as f32 / total.max(1) as f32);
+    }
+    println!("\nby band (0–15 … 90+ m from the goal attacked), per match:");
+    for (c, b) in &cause_bins {
+        println!("  {c:<26} {}", b.iter().map(|&n| format!("{:>5.1}", per(n))).collect::<Vec<_>>().join(" "));
     }
     poss_durations.sort_by(f32::total_cmp);
     let q = |f: f32| poss_durations.get(((poss_durations.len() as f32 - 1.0) * f) as usize).copied().unwrap_or(0.0);

@@ -1306,6 +1306,15 @@ pub struct DuelConfig {
     /// only once it has been so for this many of his reaction times: he has to see it first.
     pub tackle_cue_reaction: f32,
     pub tackle_clean_share: f32,
+    /// Set D (G4): a carrier under pressure loses the ball by himself (a touch too heavy, the ball squirting off his
+    /// foot) at this hazard per second at full pressure (`pressure_at` 1) for an average player, ∝ pressure²
+    /// (`duel::pressed_loss_hazard`); the on-ball AI prices holding and dribbling with the same hazard. Calibrated
+    /// against the `receptions` bench: StatsBomb 360, a receiver with an opponent within 1.5 m loses the ball at 0.28
+    /// per second on it, 42 % of the losses miscontrols.
+    pub pressed_loss_rate: f32,
+    /// Set D (C2): a dribble touch runs no further than this share of the gap between the ball and the tackle reach of
+    /// an opponent near its path ahead, so the carrier gets there first (calibrated).
+    pub touch_gap_share: f32,
     pub beaten_recovery_s: f32,
     pub tackle_duration_s: f32,
     /// Slope of the control logistic in the ball's difficulty …
@@ -1368,6 +1377,8 @@ impl Default for DuelConfig {
             tackle_loose_margin: 0.3,
             tackle_cue_reaction: 1.0,
             tackle_clean_share: 0.6,
+            pressed_loss_rate: 0.3,
+            touch_gap_share: 0.5,
             beaten_recovery_s: 0.8,
             tackle_duration_s: 0.35,
             first_touch_slope: 5.0,

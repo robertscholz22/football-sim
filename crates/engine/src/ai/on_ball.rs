@@ -19,7 +19,7 @@ use super::scan;
 use super::brain::{InPhase, TeamPhase};
 use crate::ball::{BallParams, KickSolution, KickSpec, solve_kick};
 use crate::config::SimConfig;
-use crate::duel::{challenge_strength, logistic, tackle_win_prob};
+use crate::duel::{challenge_strength, logistic, pressed_loss_hazard, tackle_win_prob};
 use crate::match_state::MatchState;
 use crate::pitch::{
     GOAL_HALF_WIDTH, HALF_LENGTH, HALF_WIDTH, PENALTY_AREA_DEPTH, PENALTY_AREA_HALF_WIDTH, Third, clamp_to_pitch, is_cross,
@@ -689,7 +689,10 @@ fn dribble_keep(ctx: &Ctx, dir: Vec2, len: f32) -> (f32, bool, f32) {
         keep *= 1.0 - best * tackle_win_prob(o, p, false, &cfg.duel);
     }
     let t_end = len / v_carry + 0.15;
-    (keep, take_on, pressed_at(t_end, opp_end, cfg))
+    let pressed = pressed_at(t_end, opp_end, cfg);
+    // Set D (G4): losing it by himself on the way, at the mean of the hazard now and at the end of the carry.
+    let h = 0.5 * (pressed_loss_hazard(p, ctx.pressure, &cfg.duel) + pressed_loss_hazard(p, pressed, &cfg.duel));
+    (keep * (-h * t_end).exp(), take_on, pressed)
 }
 
 fn dribbles(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
@@ -741,7 +744,8 @@ fn dribbles(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
 fn hold(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
     let (cfg, p) = (ctx.cfg, ctx.p);
     let shield = 0.7 * challenge_strength(p, &cfg.duel) + 0.3 * norm(p.attrs.dribbling);
-    let keep = 1.0 - ctx.pressure * cfg.ai.hold_loss * (1.0 - 0.6 * shield);
+    let keep = (1.0 - ctx.pressure * cfg.ai.hold_loss * (1.0 - 0.6 * shield))
+        * (-pressed_loss_hazard(p, ctx.pressure, &cfg.duel) * cfg.ai.onball_interval).exp();
     // ATT-25: still pressed when the next decision comes.
     let opp_t = ctx
         .state

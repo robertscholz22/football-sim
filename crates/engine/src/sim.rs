@@ -17,7 +17,9 @@ use crate::ball::{
     check_lines, solve_kick, step_ball,
 };
 use crate::config::SimConfig;
-use crate::duel::{TackleOutcome, aerial_win_prob, catch_prob, control_prob, resolve_tackle, pass_touch_prob, save_prob, tackle_win_prob};
+use crate::duel::{
+    TackleOutcome, aerial_win_prob, catch_prob, control_prob, pass_touch_prob, pressed_loss_hazard, resolve_tackle, save_prob, tackle_win_prob,
+};
 use crate::events::{Card, EventKind, MatchEvent};
 use crate::match_state::{BallFlight, MatchState, PLAYERS_PER_TEAM, PlayPhase, RestartKind, Team, side_of};
 use crate::pitch::{
@@ -785,6 +787,9 @@ impl Simulation {
             return;
         }
         let Some(c) = self.state.control else { return };
+        if !matches!(self.state.players[c].intent, Intent::GkHold { .. }) && self.pressed_fumble(c, now) {
+            return;
+        }
         let ball = self.state.ball;
         let p = &self.state.players[c];
         let (p_pos, p_side) = (p.pos, p.side);
@@ -897,6 +902,44 @@ impl Simulation {
         }
     }
 
+    /// Set D (G4): a carrier under pressure (settling it, shielding, dribbling or setting up a kick) loses the ball by
+    /// himself at
+    /// `duel::pressed_loss_hazard`: a touch too heavy or the ball squirting off his foot, 1.5–5 m away from him (a
+    /// dribbler's along his line give or take 70°, a shielding player's any way). Returns true if it happened this tick.
+    fn pressed_fumble(&mut self, c: PlayerId, now: f32) -> bool {
+        let p = &self.state.players[c];
+        let ball = self.state.ball;
+        if ball.mode == BallMode::Held
+            || ball.height() > self.cfg.player.control_height
+            || (ball.ground_pos() - p.pos).length() > self.cfg.player.dribble_leash
+        {
+            return false;
+        }
+        let pressure = pressure_at(&self.state, p.side, ball.ground_pos());
+        if pressure <= 0.0 || !self.rng.chance(pressed_loss_hazard(p, pressure, &self.cfg.duel) * self.cfg.timing.dt) {
+            return false;
+        }
+        let dir = match p.intent {
+            Intent::Carry { dir, .. } => Vec2::from_angle(self.rng.range(-1.2, 1.2)).rotate(dir.normalize_or(p.facing)),
+            _ => Vec2::from_angle(self.rng.range(0.0, std::f32::consts::TAU)),
+        };
+        let u = (2.0 * self.live.rolling_decel * self.rng.range(1.5, 5.0)).sqrt();
+        let mut b = self.state.ball;
+        b.pos.z = BALL_RADIUS;
+        b.kick((p.vel + dir * u).extend(0.0), Vec3::ZERO);
+        self.state.ball = b;
+        self.state.control = None;
+        self.state.last_touch = Some(c);
+        self.played(c);
+        let p = &mut self.state.players[c];
+        p.intent = Intent::Position;
+        p.next_decision = now;
+        p.touch_cooldown_until = now + 0.4;
+        self.push(EventKind::Miscontrol { by: c });
+        self.update_brains(now);
+        true
+    }
+
     /// Ask the on-ball AI and carry out its choice.
     fn on_ball_decision(&mut self, c: PlayerId, sit: Situation, now: f32) {
         let (action, opts, chosen) = on_ball::decide(&self.state, &self.cfg, &self.plan, sit);
@@ -970,10 +1013,21 @@ impl Simulation {
         // lead. A sharp change of direction is a cut or drag-back that keeps the ball close while he turns.
         let v_along = p.vel.dot(dir).clamp(0.0, speed);
         let straight = (1.0 + p.vel.normalize_or(dir).dot(dir)) / 2.0;
-        let lead = (lead * straight).max(0.3);
+        // Set D (C2): not past an opponent near its path ahead: the carrier, not he, gets to it first.
+        let bp = self.state.ball.ground_pos();
+        let gap = self
+            .state
+            .squad(p.side.opponent())
+            .iter()
+            .filter_map(|o| {
+                let rel = o.pos - bp;
+                let along = rel.dot(dir);
+                (along > 0.0 && (rel - dir * along).length() < o.kin.tackle_reach + 1.0).then(|| (along - o.kin.tackle_reach).max(0.0))
+            })
+            .fold(f32::MAX, f32::min);
+        let lead = (lead * straight).min(self.cfg.duel.touch_gap_share * gap).max(0.3);
         let u = (v_along + (2.0 * a * lead).sqrt()) * (1.0 + self.rng.gauss(0.0, 0.06 * err)).clamp(0.6, 1.5);
         let mut d = Vec2::from_angle(yaw).rotate(dir);
-        let bp = self.state.ball.ground_pos();
         if (bp.y + d.y * 4.0).abs() > HALF_WIDTH - 0.5 {
             d.y = -d.y;
         }

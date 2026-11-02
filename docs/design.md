@@ -2845,6 +2845,59 @@ Next set (D): out-of-possession duties and duels. That covers the duty churn and
 tackles on the carry, and interceptions as far as positions cause them (lanes). Turnovers are measured by zone
 against StatsBomb's regains.
 
+## Set D: the pressed carrier (2026-11-02)
+
+Inventory first (S/watch/findings.md, "Set D inventory"), grouped by cause before any change: (P) a pressed carrier
+is too safe, (W) play is too central and rarely reaches the final third, (A) contests are clean (an opponent's first
+touch is always a controlled interception, no first-contact clearances), (R) duty churn and running out of
+possession. The groups do not pull against each other; (P) came first because it also shortens the contact that
+the tackles, fouls and take-ons come from.
+
+Diagnosis of (P): a carrier lost the ball only to a tackle. With an opponent within 1.5 m at the reception he lost it
+at 0.146 per second on the ball (StatsBomb 360: 0.28), 92 % of the losses tackles (53 % tackles, 42 % miscontrols),
+and he kept it 1.90 s (median; real 0.82 s). The AI knew it: carrying was worth as much as the best pass under
+pressure, so the forced commits (IND-03 last ditch, the loose-touch commit on a knock-on that ran to the defender)
+piled up over the contact time; take-ons ran at 44 per team (real 21.3).
+
+Changes:
+- `duel::pressed_loss_hazard`: a carrier under pressure (`pressure_at` at the ball) loses the ball by himself at
+  `pressed_loss_rate` (0.3 per second) × pressure² × (1.3 − 0.6 × skill), skill 0.6 dribbling + 0.4 composure. The sim
+  (`pressed_fumble`) applies it while he settles the ball, shields, dribbles or sets up a kick (not in a keeper's
+  hands): the ball squirts 1.5–5 m off his foot (a dribbler's along his line ± 70°, a shielding player's any way), a
+  `Miscontrol` event. The on-ball AI prices the same hazard: holding keeps exp(−hazard × `onball_interval`), a dribble
+  exp(−mean hazard at its start and end × its duration).
+- `dribble_touch`: a knock-on runs no further than `touch_gap_share` (0.5) of the gap to the tackle reach of an
+  opponent near its path ahead, so the carrier gets to it first (finding C2: the knock-on ignored the defender).
+- Swept 0.15 / 0.3 / 0.5 on the `receptions` bench: the miscontrol share of the losses within 1.5 m went 20 / 30 /
+  31 %, while losses in the 5–8 m band (already above real) rose to 48 % miscontrols at 0.5. 0.3 is kept.
+
+| 40 matches; benches 4–8 matches | set S | set D | real (× 1.62) |
+|---|---|---|---|
+| goals; shots per team | 3.03; 19.1 / 18.5 | 2.83; 17.9 / 14.8 | – |
+| tackles per team | 72 / 70 | 64 / 67 | 25.3 |
+| take-ons per team: successful + lost (success) | 26.0 + 17.9 (59 %) | 19.1 + 15.8 (55 %) | 21.3 (51 %) |
+| losses to a heavy touch or fumble per team | 3.2 | 17.6 | miscontrols 17.3 |
+| receptions with an opponent within 1.5 m: losses per second; miscontrol share; median time kept | 0.146; 8 %; 1.90 s | 0.217; 30 %; 1.60 s | 0.28; 42 %; 0.82 s |
+| same, 1.5–3 / 3–5 / 5–8 / 8+ m: losses per second | 0.100 / 0.065 / 0.033 / 0.006 | 0.110 / 0.076 / 0.034 / 0.010 | 0.14 / 0.056 / 0.016 / 0.003 |
+| commits per match: last ditch; loose touch | 56.8; 57.5 | 62.2; 37.5 | – |
+| open-play regains per match: tackle / interception / loose touch | 73 / 82 / 6 (197 in all) | 60 / 82 / 35 (215) | 105 in all |
+| throw-ins per match (outs bench) | 19.8 | 23.5 | 53.5 |
+
+Still open:
+- Regains rose, since the fumbles add to the tackles more than they replace them. The per-situation hazard is near
+  real within 3 m; the excess is in the 3–8 m bands (a receiver who had space loses it 1.4–3× as often per second as a
+  real one) and in how often a carrier is pressed at all: defenders close free receivers fast (high-intensity running
+  out of possession 3× real, D2) and commit (last ditch 62 per match).
+- Under pressure the choice stays spread: in later pressed decisions the best pass is the best option on the median
+  (+0.0110 against +0.0095 for carrying or holding), but the softmax gives passing 29 % of the mass and keeping the
+  ball (dribble or hold) the rest, as the temperature rises with pressure and the utilities differ by less than it.
+- Interceptions: 82 regains per match, but by every opponent first touch on a pass, which real data split into
+  interceptions (11 %), blocks (18 %), recoveries (17 %) and clearances (15 %), with the ball often going out. The
+  engine's ground passes 5–40 m reach an opponent first 86 times per match against 64 real (× 1.48), 1.3×; the larger
+  difference is that every such touch is a clean control (group A).
+
+Next set: width and the final third (W) with first contacts (A).
+
 ## Open after the plan
 
 All milestones of the plan (M0–M8) are done. Statuses per principle are in the catalog; the open items are listed in

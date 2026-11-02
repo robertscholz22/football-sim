@@ -48,6 +48,15 @@ pub fn tackle_win_prob(defender: &Player, carrier: &Player, from_behind: bool, c
     logistic(x)
 }
 
+/// Set D (G4): hazard (per second) that carrier `p` under `pressure` (0..1, `analysis::pressure_at`) loses control of
+/// the ball by himself: `pressed_loss_rate` × pressure² × (1.3 − 0.6 × skill), skill 0.6 dribbling + 0.4 composure (as
+/// a heavy first touch scales with first touch).
+pub fn pressed_loss_hazard(p: &Player, pressure: f32, cfg: &DuelConfig) -> f32 {
+    let a = &p.attrs;
+    let skill = 0.6 * eff(p, a.dribbling, AttrClass::Technical) + 0.4 * eff(p, a.composure, AttrClass::Mental);
+    cfg.pressed_loss_rate * pressure * pressure * (1.3 - 0.6 * skill)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TackleOutcome {
     /// Defender wins the ball cleanly.
