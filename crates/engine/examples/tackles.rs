@@ -27,6 +27,10 @@ fn main() {
     let mut far2: Vec<(bool, f32)> = Vec::new();
     for seed in 1..=matches {
         let mut sim = Simulation::from_builtin("northbridge", "harbour", seed);
+        // `CFG=file.ron`: `SimConfig` overrides, as `match_lab --config`.
+        if let Ok(path) = std::env::var("CFG") {
+            sim.cfg = match_engine::config::SimConfig::from_ron(&std::fs::read_to_string(path).unwrap()).unwrap();
+        }
         let mut seen = 0;
         let mut last_ctrl = None;
         while sim.state.time < mins * 60.0 && !sim.finished() {

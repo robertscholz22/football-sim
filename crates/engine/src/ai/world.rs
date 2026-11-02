@@ -5,7 +5,7 @@
 
 use glam::Vec2;
 
-use super::analysis::{lane_openness, offside_line, opponent_units};
+use super::analysis::{lane_openness, last_defender, offside_line, opponent_units};
 use super::reach::{intercept, pass_reaction, time_to_meet, time_to_reach, time_to_reach_after};
 use crate::ball::Trajectory;
 use crate::config::SimConfig;
@@ -25,6 +25,7 @@ pub struct World<'a> {
     now: f32,
     offside_line: [f32; 2],
     opp_units: [Vec<f32>; 2],
+    opp_last: [f32; 2],
     pressured: [bool; 2],
     intercepts: [Option<Intercepts>; 2],
     receptions: Vec<(PlayerId, Option<(f32, Vec2)>)>,
@@ -45,6 +46,7 @@ impl<'a> World<'a> {
             now,
             offside_line: sides.map(|s| offside_line(state, s)),
             opp_units: sides.map(|s| opponent_units(state, s)),
+            opp_last: sides.map(|s| last_defender(state, s, &cfg.ai)),
             pressured: sides.map(|s| carrier_pressured(state, s, cfg)),
             intercepts: [None, None],
             receptions: Vec::new(),
@@ -68,6 +70,11 @@ impl<'a> World<'a> {
     /// The opponents' units (`side`'s team frame x, ascending).
     pub fn opp_units(&self, side: Side) -> &[f32] {
         &self.opp_units[side.index()]
+    }
+
+    /// ATT-17: the opponents' deepest outfield player in the goal corridor (`side`'s team frame x).
+    pub fn opp_last(&self, side: Side) -> f32 {
+        self.opp_last[side.index()]
     }
 
     /// BLK-02: is a player of `side` within `blk02_pressure_radius` of the opposing carrier and no further forward?

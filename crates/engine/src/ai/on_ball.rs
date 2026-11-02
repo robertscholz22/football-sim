@@ -8,7 +8,7 @@
 use glam::{Vec2, Vec3};
 
 use super::analysis::{
-    ShotHow, evaluate_pass, goal_angle, in_vision, lines_broken, possession_value, pressed_at, pressure_at, shot_xg_parts,
+    ShotHow, evaluate_pass, goal_angle, in_vision, lines_broken, possession_value, pressed_at, pressure_at, shot_xg_parts, value_at,
     turnover_cost,
 };
 use super::execution::{ExecInput, landing_spread, natural_foot, setup_angle, setup_time, setup_turn};
@@ -25,6 +25,7 @@ use crate::pitch::{
     GOAL_HALF_WIDTH, HALF_LENGTH, HALF_WIDTH, PENALTY_AREA_DEPTH, PENALTY_AREA_HALF_WIDTH, Third, clamp_to_pitch, is_cross,
     third_of,
 };
+use crate::player::locomotion::carry_on;
 use crate::player::{AttrClass, Foot, KickKind, KickPlan, Player, PlayerId, effective, norm};
 use crate::rng::SimRng;
 use crate::team::{AttackingTactics, Movement, adherence, applied_attacking, resolve_player};
@@ -259,7 +260,7 @@ pub fn evaluate(state: &MatchState, cfg: &SimConfig, plan: &BallParams, sit: Sit
     }
     passes(&ctx, &mut opts);
     if !sit.restart && !sit.gk_hands {
-        let here = possession_value(ctx.from, &cfg.ai);
+        let here = value_at(ctx.from, p.beliefs.opp_last, &cfg.ai);
         let mut proj = state.clone();
         ctx.cont_hold = ahead(&ctx, &mut proj, cfg.ai.onball_interval, here);
         if !sit.first_time {
@@ -309,7 +310,7 @@ pub fn evaluate(state: &MatchState, cfg: &SimConfig, plan: &BallParams, sit: Sit
 /// Look-ahead level 1 for the carrier (docs/player-brain.md 8.4: "the carrier is a brain too"): the best pass he
 /// expects to have `t` s from now, beyond `here`, the value of the ball's location (≥ 0). Team-mates go towards the
 /// offers he reads (`reading::seen`, so a team-mate he knows less he reads later), everybody else carries on with
-/// his velocity; `proj` is a copy of the state that takes those positions. A free carrier keeps what is on and
+/// his movement (`locomotion::carry_on`); `proj` is a copy of the state that takes those positions. A free carrier keeps what is on and
 /// gains what his team-mates' movements open; defenders closing the lanes take it away. Real carriers keep the ball
 /// until a movement is on or they are pressed.
 fn ahead(ctx: &Ctx, proj: &mut MatchState, t: f32, here: f32) -> f32 {
@@ -326,7 +327,11 @@ fn ahead(ctx: &Ctx, proj: &mut MatchState, t: f32, here: f32) -> f32 {
                 let speed = q.vel.length().max((to.length() / ai.pace_position_s).min(ai.pace_run_speed));
                 to.clamp_length_max(speed * t)
             }
-            None => q.vel * t,
+            None => {
+                let (pos, vel) = carry_on(q, t);
+                out.vel = vel;
+                pos - q.pos
+            }
         };
         out.pos = clamp_to_pitch(q.pos + to, 0.0);
     }
@@ -443,8 +448,11 @@ fn passes(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
             let ev = evaluate_pass(state, cfg, ctx.plan, p.id, Some(t.id), ctx.sit.ball, &sol, target, delay, spread);
             let tt = fr.to_team(target);
             let mut rules = vec!["ATT-07"];
-            let mut v = possession_value(tt, ai);
-            let (n, last) = lines_broken(&brain.opp_units, ctx.from.x, tt.x);
+            // The ball is worth what it is where he gets it, and breaks the lines in front of that point (a ball into
+            // space he meets on its way).
+            let rt = fr.to_team(ev.recv_point);
+            let mut v = value_at(rt, brain.opp_last, ai);
+            let (n, last) = lines_broken(&brain.opp_units, ctx.from.x, rt.x);
             if n > 0 {
                 v += ctx.scale * tc.att17_line_break_bonus * (n as f32 + if last { tc.att17_last_line_factor - 1.0 } else { 0.0 });
                 rules.push("ATT-17");
@@ -700,7 +708,7 @@ fn dribbles(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
         let dir = ctx.fr.to_world(dir_t);
         let (keep, take_on, pressed) = dribble_keep(ctx, dir, len);
         // ATT-06: the continuation (the best pass at the end of the carry) is only worth having while free.
-        let mut v = possession_value(end, &cfg.ai) + ctx.cont_carry * (1.0 - pressed);
+        let mut v = value_at(end, ctx.p.beliefs.opp_last, &cfg.ai) + ctx.cont_carry * (1.0 - pressed);
         let mut rules = Vec::new();
         if dir_t.x > 0.7 {
             v += ctx.scale * tc.att01_forward_dribble_bonus;
@@ -744,7 +752,7 @@ fn hold(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
     // ATT-06: under pressure the ball is played now, so the continuation (the best pass kept for later) is only
     // worth having while free. Credited at every decision, it kept a pressed carrier deferring the pass step after
     // step (each one cheap on its own) until the tackle came (`hold_cal` example).
-    let v = possession_value(ctx.from, &cfg.ai) - 0.0005 + ctx.cont_hold * (1.0 - pressed);
+    let v = value_at(ctx.from, ctx.p.beliefs.opp_last, &cfg.ai) - 0.0005 + ctx.cont_hold * (1.0 - pressed);
     let mut u = keep * ctx.secured(v, ctx.from, ctx.att.pressed_loss * pressed) - (1.0 - keep) * ctx.cost_at(ctx.from);
     let mut rules = vec!["ATT-06"];
     if pressed > 0.5 {
@@ -821,7 +829,7 @@ fn layer2_and_3(ctx: &Ctx, opts: &mut [OptionEval]) {
     let adh = adherence(&p.attrs, p.instruction_familiarity(true), false);
     let adh_drib = adherence(&p.attrs, p.instruction_familiarity(true), pi.dribble_freq < 0.0);
     let near_goal = (1.0 - ((crate::pitch::TeamFrame::opp_goal() - ctx.from).length() - 16.5) / 25.0).clamp(0.0, 1.0);
-    let v_here = possession_value(ctx.from, &cfg.ai);
+    let v_here = value_at(ctx.from, p.beliefs.opp_last, &cfg.ai);
     let best_self = opts.iter().filter(|o| o.kind.is_self()).map(|o| o.u_opt).fold(f32::MIN, f32::max);
     for o in opts.iter_mut() {
         // Layer 2.
@@ -850,7 +858,9 @@ fn layer2_and_3(ctx: &Ctx, opts: &mut [OptionEval]) {
         o.instr = instr;
         // Layer 3: personality.
         let better_placed = match o.action {
-            Action::Kick(k) if k.receiver.is_some() => possession_value(ctx.fr.to_team(k.target), &cfg.ai) > v_here && o.u_opt > best_self,
+            Action::Kick(k) if k.receiver.is_some() => {
+                value_at(ctx.fr.to_team(k.target), p.beliefs.opp_last, &cfg.ai) > v_here && o.u_opt > best_self
+            }
             _ => false,
         };
         let bctx = BiasCtx {

@@ -69,6 +69,10 @@ struct Dec {
 
 fn play(seed: u64) -> Vec<Dec> {
     let mut sim = Simulation::from_builtin("northbridge", "harbour", seed);
+    // `CFG=file.ron`: `SimConfig` overrides, as `match_lab --config`.
+    if let Ok(path) = std::env::var("CFG") {
+        sim.cfg = match_engine::config::SimConfig::from_ron(&std::fs::read_to_string(path).unwrap()).unwrap();
+    }
     sim.decision_log = Some(Vec::new());
     let mut out = Vec::new();
     let mut seen = 0;
@@ -322,4 +326,33 @@ fn main() {
     roles.sort_by_key(|r| std::cmp::Reverse(r.1));
     let line: Vec<String> = roles.iter().map(|(r, k)| format!("{r} {:.1}", *k as f32 / m)).collect();
     println!("  by passer role per match: {}", line.join(", "));
+    // Why risky ground passes are chosen, by the passer's third (ATT-02): the chosen pass's p, whether it was the
+    // layer-1 best pass on offer, the safest pass on offer and how much optimum utility the choice gave up.
+    println!("chosen ground passes by the AI's p and the passer's third (own < 35 m / middle / final >= 70 m from own goal):");
+    for (name, lo, hi) in [("own", 0.0, 35.0), ("middle", 35.0, 70.0), ("final", 70.0, 999.0)] {
+        for (plo, phi) in [(0.0, 0.8), (0.8, 1.01)] {
+            let v: Vec<(&Dec, &PassOpt)> = decs
+                .iter()
+                .filter(|d| (lo..hi).contains(&d.x))
+                .filter_map(|d| d.chosen.filter(|c| !c.lofted && (plo..phi).contains(&c.p)).map(|c| (d, d.passes.iter().find(|q| q.u == c.u && q.p == c.p).unwrap_or(&d.passes[0]))))
+                .collect();
+            let k = v.len().max(1) as f32;
+            let best_pass = v.iter().filter(|(d, c)| d.passes.iter().filter(|q| !q.lofted).all(|q| q.u <= c.u)).count() as f32;
+            let safest: Vec<f32> = v.iter().map(|(d, _)| d.passes.iter().filter(|q| !q.lofted).map(|q| q.p).fold(0.0, f32::max)).collect();
+            let gave_up: Vec<f32> = v.iter().map(|(d, c)| d.passes.iter().map(|q| q.u).fold(f32::MIN, f32::max) - c.u).collect();
+            let rules: Vec<String> = RULES.iter().enumerate().map(|(r, n)| format!("{n} {:.0}%", 100.0 * v.iter().filter(|(_, c)| c.rules & (1 << r) != 0).count() as f32 / k)).collect();
+            println!(
+                "  {name:<6} p {plo:.1}-{:.1}: {:6.1}/match, layer-1 best pass {:3.0}%, best option overall {:3.0}%, safest ground pass on offer p med {:.2}, utility given up med {:.4}, choice prob med {:.2}, passes on offer med {:.0}; {}",
+                phi.min(1.0),
+                v.len() as f32 / m,
+                100.0 * best_pass / k,
+                100.0 * v.iter().filter(|(d, _)| d.opt_best).count() as f32 / k,
+                median(safest),
+                median(gave_up),
+                median(v.iter().map(|(_, c)| c.prob).collect()),
+                median(v.iter().map(|(d, _)| d.passes.len() as f32).collect()),
+                rules.join(", ")
+            );
+        }
+    }
 }

@@ -66,6 +66,10 @@ fn uniform(sim: &mut Simulation) {
 
 fn play(seed: u64) -> Vec<Rec> {
     let mut sim = Simulation::from_builtin("northbridge", "harbour", seed);
+    // `CFG=file.ron`: `SimConfig` overrides, as `match_lab --config`.
+    if let Ok(path) = std::env::var("CFG") {
+        sim.cfg = match_engine::config::SimConfig::from_ron(&std::fs::read_to_string(path).unwrap()).unwrap();
+    }
     uniform(&mut sim);
     let dump: usize = std::env::var("DUMP").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
     sim.decision_log = Some(Vec::new());

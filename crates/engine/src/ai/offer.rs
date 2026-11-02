@@ -10,7 +10,7 @@
 
 use glam::Vec2;
 
-use super::analysis::{in_vision_from, lines_broken, possession_value, pressed_at, pressure_at};
+use super::analysis::{in_vision_from, lines_broken, possession_value, pressed_at, pressure_at, value_at};
 use super::brain::DefDuty;
 use super::execution::setup_time;
 use super::movement::lookahead;
@@ -220,7 +220,7 @@ pub fn offer(state: &MatchState, cfg: &SimConfig, ps: &Passer, r: &Player, point
     let att = applied_attacking(&state.team(r.side).tactics, &c.attrs, c.instruction_familiarity(true), &cfg.tactics);
     let scale = possession_value(ps.at, ai) + ai.value_base;
     let tc = &cfg.tactics;
-    let mut v = possession_value(point, ai);
+    let mut v = value_at(point, r.beliefs.opp_last, ai);
     let (n, last) = lines_broken(&r.beliefs.opp_units, ps.at.x, point.x);
     if n > 0 {
         v += scale * tc.att17_line_break_bonus * (n as f32 + if last { tc.att17_last_line_factor - 1.0 } else { 0.0 });
@@ -251,7 +251,7 @@ fn receiver_factor(r: &Player, cfg: &SimConfig) -> f32 {
 /// response, section 8.4). A carrier with time keeps the ball only until he is closed down; support is for then.
 pub fn keep_value(state: &MatchState, cfg: &SimConfig, ps: &Passer, ahead: f32) -> f32 {
     let c = &state.players[ps.id];
-    let v = possession_value(ps.at, &cfg.ai);
+    let v = value_at(ps.at, c.beliefs.opp_last, &cfg.ai);
     let pressure = if ps.from_t > 0.0 { 0.0 } else { pressure_ahead(state, cfg, c, ahead) };
     let att = applied_attacking(&state.team(c.side).tactics, &c.attrs, c.instruction_familiarity(true), &cfg.tactics);
     v - att.pressed_loss * pressure * (v + risk_cost(ps.at, cfg))

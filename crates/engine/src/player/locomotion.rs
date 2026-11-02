@@ -4,7 +4,7 @@
 
 use glam::Vec2;
 
-use super::{Body, Intent, Player};
+use super::{Body, Intent, Kinematics, Player};
 
 /// Minimum fraction of the acceleration still available at top speed.
 pub const ACCEL_FLOOR: f32 = 0.15;
@@ -16,7 +16,12 @@ const FACE_RUN_FULL: f32 = 5.5;
 
 /// Desired velocity for reaching `p.target`, which itself moves at `p.target_vel`.
 pub fn desired_velocity(p: &Player) -> Vec2 {
-    let to = p.target - p.pos;
+    desired_velocity_at(p, p.pos, p.target)
+}
+
+/// `desired_velocity` for `p` standing at `pos` with his target at `target`.
+fn desired_velocity_at(p: &Player, pos: Vec2, target: Vec2) -> Vec2 {
+    let to = target - pos;
     let d = to.length();
     let paced = p.pace_s > 0.0 && p.intent == Intent::Position;
     // A paced movement runs at `pace_speed` while the gap is large and closes the rest in its pace time (M6, watch
@@ -65,22 +70,7 @@ pub fn step(p: &mut Player, dt: f32, now: f32) {
         _ => {}
     }
 
-    let v = p.vel;
-    let speed = v.length();
-    let fwd = if speed > 0.2 { v / speed } else { desired.normalize_or_zero() };
-    let dv = desired - v;
-    let dl = dv.dot(fwd);
-    let dlat = dv - dl * fwd;
-    let k = &p.kin;
-    let max_acc = k.accel * (1.0 - speed / k.top_speed).max(ACCEL_FLOOR) * accel_scale;
-    let dl_c = dl.clamp(-k.decel * dt, max_acc * dt);
-    // At low speed turning is limited by acceleration rather than grip.
-    let lat_limit = if speed < 2.0 { k.lateral_accel.max(k.accel * 1.5) } else { k.lateral_accel };
-    let dlat_c = dlat.clamp_length_max(lat_limit * dt);
-    let mut nv = v + dl_c * fwd + dlat_c;
-    if nv.length() > k.top_speed {
-        nv = nv.normalize() * k.top_speed;
-    }
+    let nv = accelerate(&p.kin, p.vel, desired, dt, accel_scale);
     p.vel = nv;
     p.pos += nv * dt;
     p.distance_covered += nv.length() * dt;
@@ -101,6 +91,46 @@ pub fn step(p: &mut Player, dt: f32, now: f32) {
             p.facing = want;
         }
     }
+}
+
+/// The velocity after `dt` of a player with kinematics `k` moving at `v` who wants `desired`: acceleration that falls
+/// with speed, a braking limit and a turning limit.
+fn accelerate(k: &Kinematics, v: Vec2, desired: Vec2, dt: f32, accel_scale: f32) -> Vec2 {
+    let speed = v.length();
+    let fwd = if speed > 0.2 { v / speed } else { desired.normalize_or_zero() };
+    let dv = desired - v;
+    let dl = dv.dot(fwd);
+    let dlat = dv - dl * fwd;
+    let max_acc = k.accel * (1.0 - speed / k.top_speed).max(ACCEL_FLOOR) * accel_scale;
+    let dl_c = dl.clamp(-k.decel * dt, max_acc * dt);
+    // At low speed turning is limited by acceleration rather than grip.
+    let lat_limit = if speed < 2.0 { k.lateral_accel.max(k.accel * 1.5) } else { k.lateral_accel };
+    let dlat_c = dlat.clamp_length_max(lat_limit * dt);
+    let mut nv = v + dl_c * fwd + dlat_c;
+    if nv.length() > k.top_speed {
+        nv = nv.normalize() * k.top_speed;
+    }
+    nv
+}
+
+/// Integration step (s) of `carry_on`.
+const CARRY_ON_DT: f32 = 0.05;
+
+/// Where `p` is and how he moves `dt` s from now if he carries on with his movement (to his target, which moves on at
+/// `target_vel`), with the steering of `step` (body states aside): how the AI predicts a player who has not yet
+/// responded, e.g. an opponent before he reads a pass (IND-08), so a presser closing in stops at his contain point
+/// instead of running on through the carrier.
+pub fn carry_on(p: &Player, dt: f32) -> (Vec2, Vec2) {
+    let (mut pos, mut vel, mut target) = (p.pos, p.vel, p.target);
+    let mut left = dt;
+    while left > 1e-4 {
+        let h = left.min(CARRY_ON_DT);
+        target += p.target_vel * h;
+        vel = accelerate(&p.kin, vel, desired_velocity_at(p, pos, target), h, 1.0);
+        pos += vel * h;
+        left -= h;
+    }
+    (pos, vel)
 }
 
 /// Push overlapping players apart (stronger players are pushed less).

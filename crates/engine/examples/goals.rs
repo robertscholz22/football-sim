@@ -19,6 +19,10 @@ fn main() {
             .map(|seed| {
                 scope.spawn(move || {
                     let mut sim = Simulation::from_builtin("northbridge", "harbour", seed);
+                    // `CFG=file.ron`: `SimConfig` overrides, as `match_lab --config`.
+                    if let Ok(path) = std::env::var("CFG") {
+                        sim.cfg = match_engine::config::SimConfig::from_ron(&std::fs::read_to_string(path).unwrap()).unwrap();
+                    }
                     let mut seen = 0;
                     let mut goals = 0u32;
                     let mut before: BTreeMap<String, u32> = BTreeMap::new();

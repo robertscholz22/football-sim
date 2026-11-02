@@ -39,6 +39,8 @@ struct Open {
     /// Nearest opponent to the passer at release; +1 if the kicker attacks towards +x, else −1.
     near_pass: f32,
     att_x: f32,
+    /// Passer's team-frame x at release.
+    x0: f32,
 }
 
 /// One pass: nearest opponent at release to the end, outcome (0 complete, 1 opponent first, 2 out of play), length,
@@ -83,6 +85,8 @@ struct Rec {
     /// after which the passing team had the ball next (within 3 s): StatsBomb logs that as a complete, deflected pass.
     near_pass: f32,
     dx: f32,
+    /// Passer's team-frame x at release.
+    x0: f32,
     kept: bool,
 }
 
@@ -102,6 +106,10 @@ fn seg_dist(p: Vec2, a: Vec2, b: Vec2) -> f32 {
 
 fn play(seed: u64) -> Vec<Rec> {
     let mut sim = Simulation::from_builtin("northbridge", "harbour", seed);
+    // `CFG=file.ron`: `SimConfig` overrides, as `match_lab --config`.
+    if let Ok(path) = std::env::var("CFG") {
+        sim.cfg = match_engine::config::SimConfig::from_ron(&std::fs::read_to_string(path).unwrap()).unwrap();
+    }
     let mut out: Vec<Rec> = Vec::new();
     let mut open: Option<Open> = None;
     let mut seen = 0;
@@ -160,6 +168,7 @@ fn play(seed: u64) -> Vec<Rec> {
                         p_pred: st.players[by].debug.chosen_p,
                         near_pass: st.squad(side.opponent()).iter().map(|q| (q.pos - f.start_pos).length()).fold(f32::MAX, f32::min),
                         att_x: (st.frame(side).to_team(f.start_pos + Vec2::X).x - st.frame(side).to_team(f.start_pos).x).signum(),
+                        x0: st.frame(side).to_team(f.start_pos).x,
                     });
                 }
                 EventKind::Restart { .. } | EventKind::Kickoff { .. } | EventKind::Goal { .. } => {
@@ -167,7 +176,7 @@ fn play(seed: u64) -> Vec<Rec> {
                         let end = st.ball.ground_pos();
                         let near_end = o.opps.iter().map(|q| (q.1 - end).length()).fold(f32::MAX, f32::min);
                         let (lane, lane_u) = lane_of(&o.opps, o.start, end);
-                        out.push(Rec { near_end, outcome: 2, length: o.length, t: 0.0, u: 0.0, run: 0.0, lat: 0.0, v_to: 0.0, label: String::new(), recv: 0.0, recv0: o.recv0, off: 0.0, closest: o.closest, on_line_early: o.on_line_early, gave_up: o.gave_up, planned: o.planned, lane, lane_u, touch_d: 0.0, touch_v: 0.0, how: o.how, recv_v: o.recv_v, p_pred: o.p_pred, dist: (end - o.start).length(), near_lat: 0.0, near_pass: o.near_pass, dx: (end - o.start).x * o.att_x, kept: false });
+                        out.push(Rec { near_end, outcome: 2, length: o.length, t: 0.0, u: 0.0, run: 0.0, lat: 0.0, v_to: 0.0, label: String::new(), recv: 0.0, recv0: o.recv0, off: 0.0, closest: o.closest, on_line_early: o.on_line_early, gave_up: o.gave_up, planned: o.planned, lane, lane_u, touch_d: 0.0, touch_v: 0.0, how: o.how, recv_v: o.recv_v, p_pred: o.p_pred, dist: (end - o.start).length(), near_lat: 0.0, near_pass: o.near_pass, dx: (end - o.start).x * o.att_x, x0: o.x0, kept: false });
                     }
                 }
                 _ => {}
@@ -239,7 +248,7 @@ fn play(seed: u64) -> Vec<Rec> {
         let (lane, lane_u) = lane_of(&o.opps, o.start, end);
         let (touch_d, touch_v) = ((st.players[t].pos - end).length(), st.players[t].vel.length());
         if side_of(t) == side_of(o.kicker) {
-            out.push(Rec { near_end, outcome: 0, length: o.length, t: 0.0, u: 0.0, run: 0.0, lat: 0.0, v_to: 0.0, label: String::new(), recv: 0.0, recv0: o.recv0, off: 0.0, closest: o.closest, on_line_early: o.on_line_early, gave_up: o.gave_up, planned: o.planned, lane, lane_u, touch_d, touch_v, how: o.how, recv_v: o.recv_v, p_pred: o.p_pred, dist: (end - o.start).length(), near_lat: 0.0, near_pass: o.near_pass, dx: (end - o.start).x * o.att_x, kept: false });
+            out.push(Rec { near_end, outcome: 0, length: o.length, t: 0.0, u: 0.0, run: 0.0, lat: 0.0, v_to: 0.0, label: String::new(), recv: 0.0, recv0: o.recv0, off: 0.0, closest: o.closest, on_line_early: o.on_line_early, gave_up: o.gave_up, planned: o.planned, lane, lane_u, touch_d, touch_v, how: o.how, recv_v: o.recv_v, p_pred: o.p_pred, dist: (end - o.start).length(), near_lat: 0.0, near_pass: o.near_pass, dx: (end - o.start).x * o.att_x, x0: o.x0, kept: false });
             continue;
         }
         let max_len: f32 = std::env::var("TRLEN").ok().and_then(|s| s.parse().ok()).unwrap_or(99.0);
@@ -295,6 +304,7 @@ fn play(seed: u64) -> Vec<Rec> {
             near_lat,
             near_pass: o.near_pass,
             dx: (end - o.start).x * o.att_x,
+            x0: o.x0,
             kept: false,
         });
         deflected.push((out.len() - 1, o.kicker, st.time + 3.0));
@@ -363,6 +373,31 @@ fn main() {
         }
         println!("{line}");
     }
+    // ATT-02: by the passer's third (own / middle / final, 35 m each) and direction.
+    for (name, lo, hi) in [("own third", -99.0, -17.5), ("middle third", -17.5, 17.5), ("final third", 17.5, 99.0)] {
+        let b: Vec<&Rec> = res.iter().filter(|r| (lo..hi).contains(&r.x0)).collect();
+        let c = |v: &[&Rec]| 100.0 * v.iter().filter(|r| done(r)).count() as f32 / v.len().max(1) as f32;
+        let mut line = format!("  {name:<13} {:4.1}% of passes, completed {:5.1}% |", 100.0 * b.len() as f32 / k, c(&b));
+        for (dn, f) in [("fwd", &(|r: &Rec| r.dx > 5.0) as &dyn Fn(&Rec) -> bool), ("lat", &|r: &Rec| (-3.0..=5.0).contains(&r.dx)), ("back", &|r: &Rec| r.dx < -3.0)] {
+            let d: Vec<&Rec> = b.iter().copied().filter(|r| f(r)).collect();
+            let pm = d.iter().map(|r| r.p_pred).sum::<f32>() / d.len().max(1) as f32;
+            let _ = write!(line, " {dn} {:5.1}% p {:3.0}% ({:4.1}%)", c(&d), 100.0 * pm, 100.0 * d.len() as f32 / b.len().max(1) as f32);
+        }
+        // What the opponent who got to it first was doing at the release.
+        let mut labels: BTreeMap<&str, u32> = BTreeMap::new();
+        let lost: Vec<&&Rec> = b.iter().filter(|r| r.outcome == 1).collect();
+        for r in &lost {
+            *labels.entry(r.label.as_str()).or_default() += 1;
+        }
+        let mut lv: Vec<(&str, u32)> = labels.into_iter().collect();
+        lv.sort_by_key(|e| std::cmp::Reverse(e.1));
+        let _ = write!(line, " | taken by");
+        for (l, c) in lv.iter().take(5) {
+            let _ = write!(line, " {l} {:.0}%", 100.0 * *c as f32 / lost.len().max(1) as f32);
+        }
+        println!("{line}");
+    }
+    println!("  real (sb_compl_third.py, 40 matches): own 23.3% 97.4% | fwd 95.7 (48%) lat 98.7 (26%) back 99.0 (27%); middle 54.4% 97.0% | fwd 93.9 (39%) lat 98.5 (27%) back 99.4 (34%); final 22.3% 91.2% | fwd 86.3 (31%) lat 86.6 (25%) back 97.3 (44%)");
     println!("  real (sb_press_compl.py): 0-1.5 m 87.9/89.1/85.3/80.6/87.9 (12.7%), 1.5-3 92.2/93.4/89.9/86.0/92.3 (28.6%), 3-5 95.2/95.7/93.9/90.3/95.1 (27.6%), 5-8 97.5/97.7/96.2/90.5/97.1 (18.0%), 8+ 99.5/99.3/98.9/97.7/99.1 (13.2%); fwd 89.8 (37.2%), lat 94.8 (25.1%), back 98.4 (37.7%)");
     for how in ["pass", "through", "first time"] {
         let b: Vec<&Rec> = res.iter().filter(|r| r.how == how).collect();

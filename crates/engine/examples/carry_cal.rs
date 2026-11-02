@@ -31,6 +31,10 @@ type Spell = (Vec<Dec>, usize, String);
 
 fn play(seed: u64) -> Played {
     let mut sim = Simulation::from_builtin("northbridge", "harbour", seed);
+    // `CFG=file.ron`: `SimConfig` overrides, as `match_lab --config`.
+    if let Ok(path) = std::env::var("CFG") {
+        sim.cfg = match_engine::config::SimConfig::from_ron(&std::fs::read_to_string(path).unwrap()).unwrap();
+    }
     sim.decision_log = Some(Vec::new());
     let mut chains: Vec<Chain> = Vec::new();
     let mut whys: Vec<Why> = Vec::new();

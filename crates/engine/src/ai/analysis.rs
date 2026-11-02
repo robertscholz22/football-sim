@@ -5,12 +5,13 @@
 use glam::{Vec2, Vec3};
 
 use super::execution::{ExecInput, natural_foot};
-use super::reach::{pass_reaction, time_to_reach, time_to_reach_after};
+use super::reach::{pass_reaction, reception_point, time_to_reach, time_to_reach_after, time_to_reach_from};
 use crate::ball::{BALL_MASS, BALL_RADIUS, Ball, BallParams, KickSolution, predict};
 use crate::config::{AiConfig, SimConfig, TacticsConfig, ValueGrid};
 use crate::duel::{aerial_win_prob, control_prob, logistic, pass_touch_prob};
 use crate::match_state::{MatchState, side_of};
 use crate::pitch::{GOAL_HALF_WIDTH, HALF_LENGTH, HALF_WIDTH, LENGTH, Side, TeamFrame, in_bounds};
+use crate::player::locomotion::carry_on;
 use crate::player::{Body, Foot, KickKind, Player, PlayerId, norm};
 
 /// Angle (rad) subtended by the opponent goal mouth from a team-frame point.
@@ -40,6 +41,28 @@ pub fn possession_value(p: Vec2, ai: &AiConfig) -> f32 {
         return g.at(p);
     }
     parametric_value(p, ai)
+}
+
+/// The value of the ball at team-frame point `p` with the deepest outfield opponent in the goal corridor at `last_x`
+/// (`last_defender`): the place's `possession_value`, plus ATT-17's premium for being in behind the last line
+/// (`AiConfig::value_behind`), phased in over the 2 m around him.
+pub fn value_at(p: Vec2, last_x: f32, ai: &AiConfig) -> f32 {
+    let behind = ((p.x - last_x + 1.5) / 2.0).clamp(0.0, 1.0);
+    possession_value(p, ai) + behind * ai.value_behind * (-(p.y / ai.value_behind_width).powi(2)).exp()
+}
+
+/// ATT-17: the deepest outfield opponent of `side` within `value_behind_corridor` m of the goal's centre line (`side`'s
+/// team frame x); behind the own goal line if there is none.
+pub fn last_defender(state: &MatchState, side: Side, ai: &AiConfig) -> f32 {
+    let fr = state.frame(side);
+    state
+        .squad(side.opponent())
+        .iter()
+        .filter(|p| !p.is_gk() && !p.sent_off)
+        .map(|p| fr.to_team(p.pos))
+        .filter(|q| q.y.abs() < ai.value_behind_corridor)
+        .map(|q| q.x)
+        .fold(-HALF_LENGTH - 1.0, f32::max)
 }
 
 /// The parametric possession value model (`AiConfig::value_base` and following).
@@ -88,9 +111,15 @@ impl ValueGrid {
     }
 }
 
-/// Cost of losing the ball at a team-frame point = the opponents' possession value there.
+/// Cost of losing the ball at a team-frame point = the value of the possession the opponents' regain there starts
+/// (`AiConfig::regain_base` and following), or their learned possession value there.
 pub fn turnover_cost(p: Vec2, ai: &AiConfig) -> f32 {
-    possession_value(-p, ai)
+    if let Some(g) = &ai.value_grid {
+        return g.at(-p);
+    }
+    let q = -p;
+    let s = ((q.x + HALF_LENGTH) / LENGTH).clamp(0.0, 1.0);
+    ai.regain_base + ai.regain_progress * s.powf(ai.regain_power) * (-(q.y / ai.regain_width).powi(2)).exp()
 }
 
 /// Pressure on a player (0..1) from the nearest opponents; goal-side opponents count fully.
@@ -206,6 +235,10 @@ pub struct PassEval {
     pub arrival_speed: f32,
     /// Most likely loss point (world frame).
     pub loss_point: Vec2,
+    /// Where the receiver most likely gets the ball (world frame), as `Simulation::reception` has him take it (ATT-24):
+    /// free, at the point he reaches nearest the target; pressed there, where he meets it first (the points along the
+    /// path where he is first, weighted by that chance, `race`). The target for a ball into space.
+    pub recv_point: Vec2,
     /// ATT-06 / ATT-25: how pressed (0..1) the receiver is when the ball arrives (an opponent can reach the target
     /// within `att06_pressure_time_s` of it).
     pub pressed: f32,
@@ -248,17 +281,18 @@ pub fn evaluate_pass(
         arrival_t: arrival,
         arrival_speed: sol.arrival_vel.length(),
         loss_point: target,
+        recv_point: target,
         pressed: 0.0,
     };
     if let Some(r) = receiver {
         let rp = &state.players[r];
         let spread = spread.unwrap_or(Vec2::ZERO);
         let read = super::reading::receive_delay(state, &cfg.ai, r, kicker);
-        let (p_first, p_air, p_opp, loss) = race(state, cfg, &traj, rp, read, side, from.truncate(), target, arrival, delay, spread);
+        let (p_first, p_air, p_opp, loss, recv) = race(state, cfg, &traj, rp, read, side, from.truncate(), target, arrival, delay, spread);
         let opp_time = state
             .squad(side.opponent())
             .iter()
-            .map(|o| time_to_reach_after(o, target, cfg.player.control_radius, pass_reaction(o, 0.0, &cfg.player)))
+            .map(|o| opponent_time(o, target, cfg.player.control_radius, delay, &cfg.player))
             .fold(f32::MAX, f32::min);
         let pressure = (1.0 - (opp_time - arrival - delay) / 1.0).clamp(0.0, 1.0);
         eval.pressed = pressed_at(arrival + delay, opp_time, cfg);
@@ -266,6 +300,10 @@ pub fn evaluate_pass(
         let p_ctrl = control_prob(&rp.attrs, rp.confidence, rp.energy, eval.arrival_speed, height, pressure, &cfg.duel);
         eval.p_intercept = p_opp;
         eval.loss_point = loss;
+        // His margin counts from now; the ball's samples from the release, `delay` later, and he reads it `read` late.
+        let margin = cfg.tactics.att24_set_margin_s + read - delay;
+        let free = reception_point(rp, &traj, target, cfg.player.control_height, margin).map_or(recv, |(_, pt)| pt);
+        eval.recv_point = free.lerp(recv, eval.pressed);
         // A failed first touch leaves a loose ball near the receiver, recovered by his team about a third of the time.
         eval.p_success = p_first * (0.35 + 0.65 * p_ctrl) + p_air;
         eval.p_air = p_air;
@@ -276,7 +314,6 @@ pub fn evaluate_pass(
     }
     let seg = target - from.truncate();
     let seg_len = seg.length().max(0.1);
-    let mut p_none = 1.0;
     let mut worst = 0.0;
     for o in state.squad(side.opponent()) {
         // Quick reject: too far from the lane to matter.
@@ -287,8 +324,8 @@ pub fn evaluate_pass(
         }
         // An outfield opponent contests a high ball up to his header height.
         let reach_h = if o.is_gk() { cfg.player.gk_max_height } else { o.header_height() };
-        let mut best: f32 = 0.0;
-        let mut best_pt = q;
+        let (mut best, mut best_pt) = block(o, &traj, delay, &cfg.player).map_or((0.0f32, q), |(p, _, g)| (p, g));
+        let (react, start, vel) = opponent_start(o, delay, &cfg.player);
         for s in &traj.samples {
             if s.t > arrival + 0.1 {
                 break;
@@ -297,25 +334,26 @@ pub fn evaluate_pass(
                 continue;
             }
             let g = s.pos.truncate();
-            let to = time_to_reach_after(o, g, cfg.player.control_radius, pass_reaction(o, 0.0, &cfg.player));
+            let to = react + time_to_reach_from(&o.kin, start, vel, g, cfg.player.control_radius, 0.0);
             let p = logistic((s.t + delay - to) / cfg.ai.race_sigma) * pass_touch_prob(s.vel.length(), o.attrs.instinct, &cfg.player);
             if p > best {
                 best = p;
                 best_pt = g;
             }
         }
-        p_none *= 1.0 - best;
         if best > worst {
             worst = best;
             eval.loss_point = best_pt;
         }
     }
-    eval.p_intercept = 1.0 - p_none;
+    // PRS-02: one opponent goes for the ball, the best placed.
+    let p_none = 1.0 - worst;
+    eval.p_intercept = worst;
 
     let opp_time = state
         .squad(side.opponent())
         .iter()
-        .map(|o| time_to_reach_after(o, target, cfg.player.control_radius, pass_reaction(o, 0.0, &cfg.player)))
+        .map(|o| opponent_time(o, target, cfg.player.control_radius, delay, &cfg.player))
         .fold(f32::MAX, f32::min);
     eval.pressed = pressed_at(arrival + delay, opp_time, cfg);
     let own_time = state
@@ -329,6 +367,48 @@ pub fn evaluate_pass(
     eval
 }
 
+/// IND-08: the time (s from now) opponent `o` needs to reach `point` (within `radius`) against a kick struck `delay` s
+/// from now: he reads it at the release (`pass_reaction` from the kick, as the sim lets him) and until then carries
+/// on with his movement (`locomotion::carry_on`).
+fn opponent_time(o: &Player, point: Vec2, radius: f32, delay: f32, pc: &crate::config::PlayerConfig) -> f32 {
+    let (react, pos, vel) = opponent_start(o, delay, pc);
+    react + time_to_reach_from(&o.kin, pos, vel, point, radius, 0.0)
+}
+
+/// IND-08: when (s from now) opponent `o` starts for a kick struck `delay` s from now, where he is and how he moves
+/// then (`opponent_time`).
+fn opponent_start(o: &Player, delay: f32, pc: &crate::config::PlayerConfig) -> (f32, Vec2, Vec2) {
+    let react = delay + pass_reaction(o, 0.0, pc);
+    let (pos, vel) = carry_on(o, react);
+    (react, pos, vel)
+}
+
+/// The sim's block (`Simulation::foot_contact`): a low kick that reaches an outfield opponent within his reaction time
+/// of the strike hits him if it passes within `control_radius` (his body within `body_radius`, `shot_body_block_p`,
+/// otherwise a leg, `shot_leg_block_p` by instinct); he has no time to go for it and carries on with his movement,
+/// through the set-up (`delay`) too. Returns the chance, when (s after the strike) and where.
+fn block(o: &Player, traj: &crate::ball::Trajectory, delay: f32, pc: &crate::config::PlayerConfig) -> Option<(f32, f32, Vec2)> {
+    if o.is_gk() {
+        return None;
+    }
+    for w in traj.samples.windows(2) {
+        let (a, b) = (&w[0], &w[1]);
+        if a.t >= o.kin.reaction {
+            break;
+        }
+        let at = carry_on(o, delay + 0.5 * (a.t + b.t)).0;
+        let (g0, seg) = (a.pos.truncate(), (b.pos - a.pos).truncate());
+        let u = ((at - g0).dot(seg) / seg.length_squared().max(1e-6)).clamp(0.0, 1.0);
+        let (t, g) = (a.t + u * (b.t - a.t), g0 + seg * u);
+        let d = (at - g).length();
+        if t < o.kin.reaction && d < pc.control_radius && a.pos.z + u * (b.pos.z - a.pos.z) - BALL_RADIUS <= pc.control_height {
+            let p = if d < pc.body_radius { pc.shot_body_block_p } else { pc.shot_leg_block_p * (0.75 + 0.25 * norm(o.attrs.instinct)) };
+            return Some((p, t, g));
+        }
+    }
+    None
+}
+
 /// A pass to `r` as the sim settles it: a first-arrival race along the ball's path. The receiver plays it at the
 /// earliest point he can reach below control height (ATT-24: he meets the ball when pressed, `reach::reception_point`
 /// / `intercept`), an opponent at the earliest he can reach below his header height (the brains' loose-ball chaser,
@@ -338,8 +418,10 @@ pub fn evaluate_pass(
 /// A lofted pass is averaged over five landing points spread by the kicker's execution error (`spread`: one σ along
 /// and across the pass, `execution::landing_spread`; zero for a ground pass): the aimed one and ±√3 σ on each axis
 /// (unscented transform, weights 1/3 and 1/6), each shifting the path by its landing offset in proportion to flight
-/// time. The receiver starts `read` s after the strike. Returns the probability that the receiver is first, that an
-/// opponent is, and where an opponent most likely wins it.
+/// time. The receiver starts `read` s after the set-up begins (it is legible to him, ATT-24), an opponent only at the
+/// strike (IND-08), carrying on through the set-up. Returns the probability that the receiver is first, that an
+/// opponent is, where an opponent most likely wins it, and where the receiver most likely gets it (his first-arrival
+/// points weighted by their chance; the target if he is never first).
 #[allow(clippy::too_many_arguments)]
 fn race(
     state: &MatchState,
@@ -353,7 +435,7 @@ fn race(
     arrival: f32,
     delay: f32,
     spread: Vec2,
-) -> (f32, f32, f32, Vec2) {
+) -> (f32, f32, f32, Vec2, Vec2) {
     let (pc, sigma) = (&cfg.player, cfg.ai.race_sigma);
     let dir = (target - from).normalize_or(Vec2::X);
     let (a, c) = (dir * spread.x * 3f32.sqrt(), dir.perp() * spread.y * 3f32.sqrt());
@@ -368,8 +450,11 @@ fn race(
     let cr = cfg.duel.aerial_contest_radius;
     let (kw, kl) = (cfg.ai.aerial_won_keep, cfg.ai.aerial_lost_keep);
     let mut f_opp = vec![0.0f32; opps.len()];
+    let blocks: Vec<Option<(f32, f32, Vec2)>> = opps.iter().map(|o| block(o, traj, delay, pc)).collect();
+    let starts: Vec<(f32, Vec2, Vec2)> = opps.iter().map(|o| opponent_start(o, delay, pc)).collect();
     let (mut p_recv, mut p_air, mut p_opp) = (0.0, 0.0, 0.0);
     let mut loss = (0.0, target);
+    let (mut recv_sum, mut recv_w) = (Vec2::ZERO, 0.0f32);
     for (shift, w) in cases {
         f_opp.fill(0.0);
         let (mut f_r, mut none_before) = (0.0f32, 1.0f32);
@@ -385,15 +470,21 @@ fn race(
             let aerial = h > pc.control_height;
             // Within the contest radius of the first man to the ball: this much earlier or later along its path.
             let slack = cr / s.vel.truncate().length().max(1.0);
-            let mut none = 1.0;
+            // PRS-02: one opponent goes for the ball (`brain` chaser), so the race is against the best placed one.
+            let mut f_max = 0.0f32;
             let (mut near_none, mut pw_sum, mut f_sum, mut f_gk) = (1.0f32, 0.0f32, 0.0f32, 0.0f32);
-            for ((o, f), pwo) in opps.iter().zip(f_opp.iter_mut()).zip(&pw) {
+            for ((((o, f), pwo), bl), &(react, start, vel)) in opps.iter().zip(f_opp.iter_mut()).zip(&pw).zip(&blocks).zip(&starts) {
+                if let Some((bp, bt, _)) = *bl
+                    && s.t >= bt
+                {
+                    *f = f.max(bp);
+                }
                 let reach_h = if o.is_gk() { pc.gk_max_height } else { o.header_height() };
-                // Skip the race when even running flat out from now he could not get near it in time.
-                let react = pass_reaction(o, 0.0, pc);
-                let lower = react + ((o.pos - g).length() - pc.control_radius) / o.kin.top_speed;
+                // IND-08: he reads the pass at its release and carries on with his movement until then
+                // (`opponent_start`). Skip the race when even running flat out from then he could not get near it.
+                let lower = react + ((start - g).length() - pc.control_radius) / o.kin.top_speed;
                 if h <= reach_h && t - lower > -4.0 * sigma {
-                    let to = time_to_reach_after(o, g, pc.control_radius, react);
+                    let to = react + time_to_reach_from(&o.kin, start, vel, g, pc.control_radius, 0.0);
                     *f = f.max(logistic((t - to) / sigma) * pass_touch_prob(s.vel.length(), o.attrs.instinct, pc));
                     if aerial && !o.is_gk() {
                         near_none *= 1.0 - logistic((t + slack - to) / sigma);
@@ -404,8 +495,9 @@ fn race(
                 if o.is_gk() {
                     f_gk = *f;
                 }
-                none *= 1.0 - *f;
+                f_max = f_max.max(*f);
             }
+            let none = 1.0 - f_max;
             let near_o = 1.0 - near_none;
             let mut f_r_now = f_r;
             let mut near_r = 0.0;
@@ -422,6 +514,8 @@ fn race(
             }
             let r_first = (f_r_now - f_r) * 0.5 * (none + none_before);
             let o_first = (none_before - none) * (1.0 - 0.5 * (f_r + f_r_now));
+            recv_sum += g * (w * r_first);
+            recv_w += w * r_first;
             let lost = if aerial {
                 // A header the receiver contests (he is first, or within the contest radius of the opponent who is)
                 // is an aerial duel and then a loose knock-down: his side keeps it `aerial_won_keep` of the time
@@ -445,7 +539,8 @@ fn race(
             (f_r, none_before) = (f_r_now, none);
         }
     }
-    (p_recv, p_air, p_opp, loss.1)
+    let recv = if recv_w > 1e-4 { recv_sum / recv_w } else { target };
+    (p_recv, p_air, p_opp, loss.1, recv)
 }
 
 /// xG of a shot by `shooter` from team-frame point `p`, struck now with the foot his body position gives, with

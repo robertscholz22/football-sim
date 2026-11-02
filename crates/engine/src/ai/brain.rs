@@ -10,7 +10,7 @@
 
 use glam::Vec2;
 
-use super::analysis::possession_value;
+use super::analysis::value_at;
 use super::positioning::{cover_point, in_shooting_range, opponent_pass_in_flight, shot_block_point};
 use super::reading;
 use super::shape::slot_point;
@@ -149,6 +149,8 @@ pub struct Beliefs {
     pub offside_line: f32,
     /// Opponent units (team frame x, ascending).
     pub opp_units: Vec<f32>,
+    /// ATT-17: the opponents' deepest outfield player in the goal corridor (team frame x, `analysis::last_defender`).
+    pub opp_last: f32,
     /// ATT-18: runs in behind are on.
     pub runs_on: bool,
     /// Slot of the player chasing a loose ball / intercepting, the point (world) and when the ball is there.
@@ -199,6 +201,7 @@ impl Default for Beliefs {
             line_reading_since: 0.0,
             offside_line: 0.0,
             opp_units: Vec::new(),
+            opp_last: 0.0,
             runs_on: false,
             chaser: None,
             challenge: false,
@@ -471,6 +474,7 @@ pub fn update(state: &MatchState, world: &mut World, id: PlayerId, cfg: &SimConf
     b.offside_line = world.offside_line(side);
     b.opp_units.clear();
     b.opp_units.extend_from_slice(world.opp_units(side));
+    b.opp_last = world.opp_last(side);
 
     // --- BLK-02: is the opposing carrier pressured? ---
     b.pressured = world.pressured(side);
@@ -1024,7 +1028,7 @@ fn assign_defence_duties(
         if zones.is_empty() {
             continue;
         }
-        let threat = possession_value(ofr.to_team(o.pos), &cfg.ai) * world.lane_openness(side.opponent(), from, o.pos);
+        let threat = value_at(ofr.to_team(o.pos), world.opp_last(side.opponent()), &cfg.ai) * world.lane_openness(side.opponent(), from, o.pos);
         pairs.extend(zones.into_iter().map(|i| (threat, (o.pos - squad[i].pos).length(), i, o.id)));
     }
     pairs.sort_by(|a, c| c.0.total_cmp(&a.0).then(a.1.total_cmp(&c.1)).then(a.2.cmp(&c.2)).then(a.3.cmp(&c.3)));

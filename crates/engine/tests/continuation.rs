@@ -15,8 +15,9 @@ use match_engine::team::Role;
 mod common;
 use common::{home_frame, slot_of};
 
-/// The carrier free on the halfway line, the striker free 25 m ahead of him, everybody else out on the touchlines (the
-/// opponents' line up to 34 m deep, so the striker is clearly onside, LAW-01).
+/// The carrier free on the halfway line, the striker free 25 m ahead of him, everybody else out on the touchlines but
+/// the opponents' two centre-backs, 34 m deep and 18 m either side (so the striker is clearly onside, LAW-01, and
+/// neither he nor the carrier is in behind the last line, ATT-17).
 fn scene() -> (Scenario, PlayerId) {
     let mut sc = Scenario::new(31);
     let fr = home_frame(&sc);
@@ -28,6 +29,8 @@ fn scene() -> (Scenario, PlayerId) {
             sc.place(id, fr.to_world(Vec2::new(x, y)));
         }
     }
+    sc.place(12, fr.to_world(Vec2::new(34.0, 18.0)));
+    sc.place(13, fr.to_world(Vec2::new(34.0, -18.0)));
     sc.place(carrier, fr.to_world(Vec2::ZERO)).give_ball(carrier);
     sc.place(st, fr.to_world(Vec2::new(25.0, 0.0)));
     sc.think();
@@ -67,14 +70,17 @@ fn a_defender_running_into_the_lane_makes_holding_worth_less_than_passing_now() 
     let cfg = sc.sim.cfg.clone();
     let fr = home_frame(&sc);
     let calm = options(&sc, carrier, &cfg);
-    // An opponent 6 m beside the lane to the striker, running across it at 7 m/s.
+    // An opponent 7 m beside the lane to the striker, 8 m out, running across it at 7 m/s: a pass now beats him to the
+    // lane (opponents react at its release, IND-08), one at the next decision does not.
     let d = 11 + 7;
-    sc.place(d, fr.to_world(Vec2::new(12.5, 6.0)));
+    sc.place(d, fr.to_world(Vec2::new(8.0, 7.0)));
     sc.sim.state.players[d].vel = fr.to_world(Vec2::new(0.0, -7.0));
     let closing = options(&sc, carrier, &cfg);
     let (gap_calm, gap_closing) = (best_pass(&calm) - hold(&calm), best_pass(&closing) - hold(&closing));
+    // By at least 5 % of what is at stake there (the decision scale, `on_ball`).
+    let scale = possession_value(fr.to_team(sc.sim.state.ball.ground_pos()), &cfg.ai) + cfg.ai.value_base;
     assert!(
-        gap_closing > gap_calm + 0.002,
-        "best pass − hold: {gap_closing:+.5} with the lane closing, {gap_calm:+.5} without"
+        gap_closing > gap_calm + 0.05 * scale,
+        "best pass − hold: {gap_closing:+.5} with the lane closing, {gap_calm:+.5} without (scale {scale:.4})"
     );
 }

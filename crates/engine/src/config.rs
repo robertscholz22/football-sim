@@ -679,9 +679,9 @@ impl Default for TacticsConfig {
             att01_shot_bonus: 0.1,
             att01_forward_pass_bonus: 0.1,
             att01_forward_dribble_bonus: 0.05,
-            att02_risk_weight_own_third: 1.4,
+            att02_risk_weight_own_third: 1.0,
             att02_risk_weight_middle_third: 1.0,
-            att02_risk_weight_final_third: 0.6,
+            att02_risk_weight_final_third: 1.0,
             att03_comfortable_p: 0.8,
             att03_forward_bonus_per_m: 0.005,
             att04_bind_bonus: 0.15,
@@ -703,7 +703,7 @@ impl Default for TacticsConfig {
             att14_shadow_deg: 10.0,
             att15_min_space: 3.0,
             att17_line_break_bonus: 0.12,
-            att17_last_line_factor: 2.0,
+            att17_last_line_factor: 1.0,
             att18_run_depth: 12.0,
             att18_min_time_on_ball_s: 0.8,
             att26_front_m: 5.0,
@@ -901,6 +901,22 @@ pub struct AiConfig {
     pub value_wide: f32,
     pub value_width: f32,
     pub value_shot_share: f32,
+    /// ATT-17: a reception or a carry in behind the last line, beyond every outfield opponent within
+    /// `value_behind_corridor` m of the goal's centre line, is worth `value_behind` × exp(−(y / `value_behind_width`)²)
+    /// more than the place alone (`analysis::value_at`). Fitted to 166 StatsBomb 360 matches (open-play receipts whose
+    /// visible area reaches the goal line, 4–35 m from it; scratchpad `sb_behind_fit.py`): centrally 0.154 vs 0.106
+    /// (6–12 m), 0.102 vs 0.062 (12–18 m), 0.064 vs 0.034 (18–25 m) xG for the possession, none wide.
+    pub value_behind: f32,
+    pub value_behind_width: f32,
+    pub value_behind_corridor: f32,
+    /// Turnover cost model (ATT-02): the xG of the possession an opponent's open-play regain starts, `regain_base` +
+    /// `regain_progress` × s^`regain_power` × exp(−(y / `regain_width`)²), s = metres from the regaining side's own
+    /// goal line / pitch length. Fitted to 11,022 regains in 166 StatsBomb matches (scratchpad `fit_regain.py`): it
+    /// has no shot term, a regain near goal is worth far less than a pass received there.
+    pub regain_base: f32,
+    pub regain_progress: f32,
+    pub regain_power: f32,
+    pub regain_width: f32,
     /// A possession value field learned by self-play (M8, `match_lab --learn-value`) in place of the parametric model
     /// above; `None` keeps the parametric model.
     pub value_grid: Option<ValueGrid>,
@@ -1058,12 +1074,19 @@ impl Default for AiConfig {
             lofted_launch_angle: 0.65,
             cross_launch_angle: 0.33,
             planning_dt: 0.01,
-            value_base: 0.004,
-            value_progress: 0.06,
-            value_power: 3.0,
-            value_wide: 0.4,
-            value_width: 22.0,
-            value_shot_share: 0.55,
+            value_base: 0.0083,
+            value_progress: 0.028,
+            value_power: 1.84,
+            value_wide: 0.0,
+            value_width: 39.0,
+            value_shot_share: 0.31,
+            value_behind: 0.040,
+            value_behind_width: 10.0,
+            value_behind_corridor: 20.0,
+            regain_base: 0.004,
+            regain_progress: 0.030,
+            regain_power: 0.8,
+            regain_width: 35.0,
             value_grid: None,
             xg_a: -0.18,
             xg_b: 0.97,
@@ -1084,7 +1107,7 @@ impl Default for AiConfig {
             pass_arrival_per_m: 0.38,
             pass_arrival_min: 6.0,
             pass_arrival_max: 12.0,
-            temperature_worst: 0.23,
+            temperature_worst: 0.115,
             temperature_exp: 2.0,
             temperature_best: 0.0,
             vision_half_angle_min: 80.0,

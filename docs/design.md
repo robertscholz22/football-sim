@@ -1066,7 +1066,7 @@ How readily a defender touches a pass going by him did not matter. That chance i
 anticipation; the same numbers as before, now in the config), and a sweep from 0.9 flat to the current curve moved
 the lane shares by ≤ 2 points.
 
-**The possession value curve, fitted but not used yet.** From 166 StatsBomb matches (scratchpad
+**The possession value curve, fitted (the default since set C).** From 166 StatsBomb matches (scratchpad
 `sb_receipt_value.py`, `fit_value.py`), the xG a team still gets in a possession after a free pass receipt rises
 from 0.0097 (0–25 m from the own goal line) to 0.0136 (40–52.5 m), 0.024 (75–85 m) and 0.0735 (95 m on). A fit
 `base + progress · s^power · exp(−(y/width)²) + share · xg` gives base 0.0083, progress 0.028, power 1.84, width
@@ -1075,8 +1075,8 @@ current curve (0.004, 0.06, 0.55). With it (10 matches), lanes came out right (<
 tackles ≈ 79 instead of ≈ 105 per team. But 30–45 m passes rose to 453 per match, the backward ones from 113 to 175: full-backs
 and wingers under pressure (nearest opponent median 2.7–3.9 m) played 30–45 m back to centre-backs and the keeper.
 With a flat own half, going back costs little, and the short options are worse than they should be (below). The
-fit is kept out until short passes are as safe as real ones; the parameters are recorded here and in the
-calibration table.
+fit was kept out until short passes were as safe as real ones; set C of the watch round (2026-11-02, below) adopted
+it with the turnover cost and the in-behind premium that go with it.
 
 **Why long balls still win.** The `long_choice` bench at the final settings: of 368 chosen 30–45 m passes per match,
 a short pass (< 20 m) was on offer 96 % of the time. The long forward ones gain a median +0.53 of the value scale at
@@ -1173,7 +1173,7 @@ per xG of the strong side ran 1.5–1.7 (1.2 at equal strength).
   i.e. 1.6 / 0.4); 0.90 at 0.58 either way. The dribble touch error uses the same.
 - Kinematic ranges narrowed ≈ 20 % around the same average: top speed 7.4–9.8 m/s (was 7.0–10.0), acceleration
   6.6–10.0 (6.0–10.5), deceleration 5.4–7.7, lateral 4.5–7.1.
-- Decision temperature concave: `temperature_worst` 0.23 with `temperature_exp` 2 (temperature = worst · (1 −
+- Decision temperature concave: `temperature_worst` 0.23 (0.115 since set C, 2026-11-02) with `temperature_exp` 2 (temperature = worst · (1 −
   skill²)); the 58 keeps the temperature he had with 0.35 linear, a 47 gets 0.17 instead of 0.19, and a 100 stays
   at 0.
 
@@ -2713,6 +2713,77 @@ far more often than real (IND-03 last ditch 68 and loose touches 60 per match, t
 front in half of them; the old "carry in space loses the ball 2–10× as often per second" finding), so tackles, fouls
 and cards rose. Next set: duels on the carry. Single-threaded seconds per match in the 40-match lab 28 → 41 (more
 decisions per spell, each with two look-ahead pass evaluations).
+
+**Set C: what a pass and a loss are worth (2026-11-02).** The set started as "duels on the carry" and turned out
+to be about the AI's prices.
+- The AI raced a pass against every opponent near its path as independent chasers, each starting from a standstill
+  when the passer decided; in the sim one opponent goes, and he reacts at the release.
+- The value curve was steep in the own half, and a loss was priced at the opponents' mirrored receipt value, its
+  shot term included, then weighted 1.4 / 1.0 / 0.6 by third. A loss 10–20 m from the own goal cost 0.08–0.17 xG
+  against the real 0.02–0.03, and one in the final third 0.6 of the real cost.
+- Decision noise was a quarter of the value scale; three quarters of the risky middle-third passes were not the
+  best pass, while a safe one was on offer.
+
+Changes, applied as one set (inventory and reasoning in the watch findings, C1–C26):
+- G0, IND-08 / PRS-02 on the passer's side (`analysis::race`, `evaluate_pass`):
+  - Opponents start at the release, carrying on with their movement through the set-up (`opponent_start`,
+    `locomotion::carry_on`).
+  - A low ball that reaches an opponent within his reaction time hits him (`block`).
+  - The best-placed opponent is the one chaser.
+  - The receiver's pressure clocks start at the release too.
+- G1: the fitted value curve becomes the default (above: base 0.0083, progress 0.028, power 1.84, width 39 m, shot
+  share 0.31).
+- G1b, ATT-02: a loss costs the xG of the possession the opponents' regain starts there (`analysis::turnover_cost`;
+  `regain_base` 0.004, `regain_progress` 0.030, `regain_power` 0.8, `regain_width` 35 m, fitted to 11,022 StatsBomb
+  regains). The per-third weights are 1 / 1 / 1; the source's "more risk further up" is in the gradient.
+- G1c, ATT-17: a ball in behind the last line is worth `value_behind` 0.040 × exp(−(y / 10)²) more than the place
+  (`analysis::value_at`, `last_defender`, StatsBomb 360: central receptions with no outfield opponent goal-side).
+  - It is used wherever possession at a point is valued: passes, offers, carries, holding, the carrier's look-ahead,
+    egotism's "better placed" team-mate and the markers' threat.
+  - The last line's factor in the line-break bonus drops from 2 to 1.
+- G1d, ATT-24 in the AI: a pass is worth what the ball is worth where the receiver gets it, and breaks the lines in
+  front of that point (`PassEval::recv_point`):
+  - free, where `Simulation::reception` has him take it (the reachable point nearest the target);
+  - pressed, where he meets it first;
+  - in between, blended by his pressure.
+  Until then a through ball he met short of the line was priced as the ball in behind.
+- G3: `temperature_worst` 0.23 → 0.115.
+  - Arms 0.23 / 0.115 / 0.06 gave ground 5–40 m completion 89 / 92 / 92 %.
+  - Completion with the passer's nearest opponent 1.5–3 m away was 89.2 / 93.3 / 92.8 % (real 92.3).
+  - Below 0.115 nothing moved.
+- `positioning::choose_move`: movements whose points are within `SAME_PLACE_M` (1 m) share one noise draw, so a
+  place does not win more often for having two names (hold and pin the line).
+
+| 40 matches; benches 4 | set T | G0–G3 + G1c | set C (+ G1d) | real |
+|---|---|---|---|---|
+| goals; shots per team | 2.65; 20.2 / 15.6 | 2.80; 20.6 / 16.0 | 2.88; 19.5 / 13.2 | sanity ≥ 2.47 |
+| ground passes 5–40 m completed | 87 % | 89 % | 93 % | 95.8 % |
+| by the passer's third: own / middle / final | – | 96.3 / 89.9 / 67.3 % | 98.5 / 92.8 / 79.3 % | 97.4 / 97.0 / 91.2 % |
+| passer's nearest opponent 1.5–3 m / 8 m + | 87.3 / 97.5 % | 90.6 / 96.3 % | 93.6 / 98.4 % | 92.3 / 99.1 % |
+| interceptions; tackles per team | 120; 96 | 89; 79 | 63; 74 | –; ≈ 25 |
+| middle-third passes chosen at p < 0.8 per match | – (C5: 253) | 192 | 93 | – |
+| through balls per team-match (completed) | – | 50.5 (48 %) | 8.4 (63 %) | 2.0 (35 %), definition differs |
+| receptions beyond the last line per team-match | – | 1.9 | 3.2 | 7.6 |
+| pressed (< 1.5 m) holder: loss hazard; time on the ball | 0.13 /s; 2.60 s | 0.19 /s; 1.96 s | 0.26 /s; 1.55 s | 0.28 /s; 0.82 s |
+| take-on: AI keep vs outcome | 0.74 vs 0.92 | 0.85 vs 0.91 | – | – |
+| fouls; yellow cards | 23.1; 4.55 | 20.4; 3.88 | 18.4; 3.58 | 20.0; 3.49 |
+| goals from 1–5 passes | 35 % | 39 % | 25 % | ≈ 53 % |
+| scorecard (situation-conditional) | 8 / 32 | 7 / 32 | 8 / 32 | – |
+
+Still open:
+- The final third holds 4.8 % of the passes (real 22 %), completed 79 % (91 %); the team's line there is at 47 m
+  (52.6–53.7).
+- Counters cover 25 m in 8.6 s (70 m in 9–11 s). Quick goals fell when the through-ball artefact went, because the
+  runs they came from are still late:
+  - strikers start 110 runs in behind per match (real ≈ 26.5);
+  - they are on the line in 11–17 % of the samples while their targets are on it in 48–57 % (positional lag);
+  - at three in four passes 10–60 m from goal no team-mate is on the last line (real one in three).
+- One test is deferred to the next set (`att26_when_one_striker_comes_short_the_other_holds_the_depth`): with the
+  flatter curve the second striker's run in behind gains about what it costs in effort, so he comes short half the
+  time. The effort and noise of the movement layer are still scaled for the old curve.
+
+Next set (S): in-possession positions and runs. That covers the positional lag, run churn, final-third occupation,
+the movement layer's scale and the counters. Duels on the carry come after it (tackles ≈ 3× real).
 
 ## Open after the plan
 

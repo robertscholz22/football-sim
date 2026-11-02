@@ -1205,10 +1205,15 @@ fn score_moves(state: &MatchState, cfg: &SimConfig, p: &Player, ps: &offer::Pass
     out
 }
 
+/// Movement points closer than this are the same place (`choose_move`).
+const SAME_PLACE_M: f32 = 1.0;
+
 /// The best of `scores` to a player who looks `look` ahead, with the switch margin for the movement he holds and his
 /// noise (layer 3), both shares of the local value scale. The noise of each movement comes from `noise`, which he
-/// keeps until the next trigger. Also the concept's choice (a perfect reader's: full look-ahead, no noise) with its
-/// point, when it is another movement (section 7: what his team-mates expect of him).
+/// keeps until the next trigger; movements to the same place (within `SAME_PLACE_M`, e.g. holding where he pins) are
+/// one option and share a draw, so a place does not win more often for having two names. Also the concept's choice
+/// (a perfect reader's: full look-ahead, no noise) with its point, when it is another movement (section 7: what his
+/// team-mates expect of him).
 fn choose_move(
     cfg: &SimConfig,
     p: &Player,
@@ -1221,7 +1226,8 @@ fn choose_move(
     let mut best = (f32::MIN, Movement::Hold, Vec2::ZERO);
     let mut concept = (f32::MIN, Movement::Hold, Vec2::ZERO);
     for s in scores {
-        let mut rng = SimRng::new(noise ^ (s.kind as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let same = scores.iter().find(|q| (q.point - s.point).length() < SAME_PLACE_M).map_or(s.kind, |q| q.kind);
+        let mut rng = SimRng::new(noise ^ (same as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15));
         let margin = if held == Some(s.kind) { s.scale * ai.movement_switch_margin } else { 0.0 };
         let u = s.value(look) + rng.gauss(0.0, s.scale * ai.movement_noise * (1.0 - reliability(p, ai))) + margin;
         if u > best.0 {
