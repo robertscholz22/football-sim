@@ -2621,6 +2621,50 @@ Still open from P and S: in-possession width and lines (distance at run speed af
 problem), running out of possession +49 % over in possession in the films (real +7 %): the attack moves too little,
 not only the defence too much.
 
+**Set S2: who is ahead of the ball (2026-11-02).** StatsBomb 360 freeze frames against the films, the ball 23–32 m from
+goal: real 3.6–4.0 visible team-mates ahead of the ball, 0.24–0.36 in the box, 3+ within 15 m in 32–56 % (a lower
+bound, only visible players count); engine 0.94–1.06, 0.10, 1–14 %, and even the targets only ≈ 1.9 ahead. Causes:
+(R1) the 4-3-3's in-possession depths made a 2-3-2-3 although its file said 2-3-5 (#8s at 0.5 / 0.64 of the length);
+(R2) the ATT-11 knots sat at the centres of the thirds although the source values are phase means; (R3) movements
+were valued for the current carrier only (docs/player-brain.md 8.4, level 1, was designed but not built); (R4) the
+width after a regain (34 m in the first 3 s); (R5) an instruction was a fixed share of the local scale, smaller than
+the spread of the movement values (`forward_runs` ±1 changed nothing at the sourced line).
+
+Changes:
+- R2: `att11_ball_x` [−32, 0, 29] m, the mean ball position of each phase (StatsBomb, 360 matches).
+- R3: `offer::next_passer`: the carrier's most likely pass makes its receiver the next carrier; a movement adds what
+  its offer adds to his options times the pass's probability, weighted by look-ahead, and its candidate points
+  include those offered to him (ATT-26).
+- R5: an instruction is a share of the movement's own worth, or of the local scale if larger.
+- R1: in-possession shapes as the creation-phase shapes of UEFA-TR24 p.50 / UEFA-TR20 p.35 (five across the front):
+  4-3-3 #8s 0.82 / 0.9 (upper box); 3-4-2-1 wing-backs 0.92, #10s 0.86; 3-4-3 wing-backs 0.92; 3-5-2 wing-backs 0.9
+  and one #8 (0.86, 0.58). The 4-4-2 is unchanged ("width from the midfield line"); the 4-2-3-1 #10 stays at 0.72
+  (0.85 puts him between the lines already, and no source number separates the two).
+- Lab: the in-possession shape metrics leave out the attacking transition (PH-01's 6 s after a change of
+  possession), which FIFA lists as a phase of its own; 37 % of the build-up and progression samples were in it.
+- R4, unpaced expansion during the attacking transition [USS-D p.57–58], was measured and dropped: +0.7 km of
+  high-intensity running, offsides 3.0, counter-attacks 36 (pace 0 reads as a counter), and the width +1 m. The width
+  in the first seconds is where the players stand at the regain, not how fast they leave it.
+- `expected_best` and `score_moves` reuse their option buffers (bit-identical). Unloaded a match takes ≈ 12 s with or
+  without R3; the 30 s per match of a 40-match lab is 12-thread contention.
+
+| 40 matches | set A | S2 with R4 | S2 |
+|---|---|---|---|
+| goals, offsides | 2.33, 2.29 | 2.88, 3.01 | 2.22, 2.45 |
+| running, high-intensity (km) | 13.3, 2.42 | 14.5, 3.30 | 14.1, 2.66 |
+| build-up width (m) | 43.0 | 43.6 | 47.1 outside the transition (54) |
+| final-third line (m) | 45.7 | 47.0 | 47.2 (52.6–53.7) |
+| 4-3-3 team-mates ahead of the ball 23–32 m out, positions / targets (films) | 1.0 / 1.9 | 1.39 / 2.11 | 1.52 / 2.78 (real ≥ 3.6–4.0) |
+
+Two scenario tests changed: the instruction test runs at the sourced line; FT-03's
+second box runner now has to take another FT-03 spot, because the far post and the penalty spot are 5.7 m apart,
+inside `offer_overlap_m`, and he may value the far post for the next carrier. Still open: every role stands 4–6 m
+behind its target in the final third (line 47 against a 51–52 m target); the ball reaches 23–32 m from goal with a
+forward 80 % of the time, where real passes from there come from full-backs (24 %) and holding midfielders (22 %);
+running out of possession is the excess (films: 8.25 km and 1.94 km high-intensity against 6.2 and 0.80 in
+possession; real out = in × 1.07 and × 1.30 [JEROME23]), so in-possession running is at the real level and the lag
+has to come out of churn, not speed.
+
 ## Open after the plan
 
 All milestones of the plan (M0–M8) are done. Statuses per principle are in the catalog; the open items are listed in

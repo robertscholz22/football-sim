@@ -465,12 +465,15 @@ pub struct TacticsConfig {
     pub att10_collinear_deg: f32,
     pub att11_onside_margin: f32,
     pub att11_touchline_margin: f32,
-    /// ATT-11: height of the in-possession back line (m from the own goal line) with the ball at the centre of the
-    /// own, middle and final third; interpolated between them (FIFA WC2022 means of the build-up, progression and
-    /// final-third phases).
+    /// ATT-11: height of the in-possession back line (m from the own goal line) with the ball at `att11_ball_x`;
+    /// interpolated between them (FIFA WC2022 means of the build-up, progression and final-third phases).
     pub att11_line: [f32; 3],
     /// ATT-11: in-possession team width (m, outfield extent) at the same three ball positions.
     pub att11_width: [f32; 3],
+    /// ATT-11: the ball positions (team frame x, m) the phase means hold at: the mean ball position of each phase,
+    /// so that the shape's mean over a phase is the source's (StatsBomb open data, 360 matches: open-play passes from
+    /// the own, middle and final third start at x −31.6, −0.1 and +29.3 on average; `sb_phase_x.py`, watch round).
+    pub att11_ball_x: [f32; 3],
     pub att12_central_half_width: f32,
     pub att12_inside_half_width: f32,
     /// ATT-14: half-angle of a defender's cover shadow (test threshold; offers in it lose their race on the lane).
@@ -693,6 +696,7 @@ impl Default for TacticsConfig {
             att11_touchline_margin: 2.5,
             att11_line: [19.6, 40.3, 53.3],
             att11_width: [54.1, 55.3, 44.0],
+            att11_ball_x: [-32.0, 0.0, 29.0],
             att12_central_half_width: 9.16,
             att12_inside_half_width: 20.16,
             att14_shadow_deg: 10.0,
@@ -818,8 +822,9 @@ pub struct AiConfig {
     pub movement_switch_margin: f32,
     /// Layer 1: the role's movement prior (0..1, `data/roles`) adds this share of the local value scale.
     pub role_prior_weight: f32,
-    /// Layer 2: a player instruction at ±1 (`forward_runs`, `come_short`, `overlap`, `invert`) adds ± this share of the local value scale
-    /// to the movements it asks for, times his adherence (`team::adherence`).
+    /// Layer 2: a player instruction at ±1 (`forward_runs`, `come_short`, `overlap`, `invert`) adds ± this share of the
+    /// movement's own worth (or of the local value scale, if larger) to the movements it asks for, times his adherence
+    /// (`team::adherence`): at 1 a full instruction doubles or cancels the movement's worth.
     pub movement_instruction_weight: f32,
     /// Layer 3: σ of the noise on a movement's value, as a share of the local value scale, for a player of reliability
     /// 0 (none at 1).

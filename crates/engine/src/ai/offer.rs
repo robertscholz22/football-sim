@@ -104,6 +104,30 @@ pub fn passer(state: &MatchState, cfg: &SimConfig, me: &Player, horizon: f32) ->
     Some(Passer { id: r, at, from_t: left + SETUP_S, facing, open, cross_from })
 }
 
+/// Look-ahead level 1 (section 8.4): the team-mate the carrier `ps` is most likely to play the ball to next, as he
+/// chooses on the ball (`expected_best`: a softmax at temperature `temp` over keeping the ball, `keep`, and the options
+/// `opts`, one per player in `mates`, each there with its availability), with the probability of that pass; that
+/// team-mate as the next passer, where he takes the ball. Like the receiver of a pass in flight (`passer`), he is open
+/// if the ball comes to him from in front and nobody can press him there.
+pub fn next_passer(state: &MatchState, cfg: &SimConfig, ps: &Passer, mates: &[&Player], opts: &[Opt], keep: f32, temp: f32) -> Option<(Passer, f32)> {
+    let t = temp.max(1e-6);
+    let top = opts.iter().filter(|o| o.avail > 0.0).map(|o| o.value).fold(keep, f32::max);
+    let w: Vec<f32> = opts.iter().map(|o| o.avail * ((o.value - top) / t).exp()).collect();
+    let sum = w.iter().sum::<f32>() + ((keep - top) / t).exp();
+    let (i, &wi) = w.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1))?;
+    if wi <= 0.0 {
+        return None;
+    }
+    let m = mates[i];
+    let fr = state.frame(m.side);
+    let at = opts[i].point;
+    let from_t = SETUP_S + (at - ps.at).length() / PASS_SPEED;
+    let (from_w, to_w) = (fr.to_world(ps.at), fr.to_world(at));
+    let open = ps.at.x > at.x - 3.0 && !receiver_pressured(state, cfg, m.id, to_w, from_t);
+    let next = Passer { id: m.id, at, from_t: from_t + SETUP_S, facing: (from_w - to_w).normalize_or_zero(), open, cross_from: None };
+    Some((next, wi / sum))
+}
+
 /// The offer of `r` at team-frame `point` to `ps`, against the opponents `opps`; `through`: a ball in behind, for which
 /// he times his run to cross the line in his lane at full speed as the pass is struck (section 6, "run in behind"),
 /// starting up to his look-ahead before it (a run from deep gets there later); the defenders respond to the pass. The
@@ -275,9 +299,11 @@ pub fn expected_best(keep: f32, opts: &[Opt], overlap: f32, temp: f32) -> f32 {
     let sure: Vec<f32> = kept.iter().filter(|o| o.avail >= 1.0).map(|o| o.value).chain([keep]).collect();
     let unsure: Vec<&Opt> = kept.iter().filter(|o| o.avail < 1.0).take(MAX_UNCERTAIN).copied().collect();
     let mut e = 0.0;
+    let mut vals = Vec::with_capacity(sure.len() + unsure.len());
     for mask in 0..1u32 << unsure.len() {
         let mut p = 1.0;
-        let mut vals = sure.clone();
+        vals.clear();
+        vals.extend_from_slice(&sure);
         for (i, o) in unsure.iter().enumerate() {
             if mask & (1 << i) != 0 {
                 p *= o.avail;

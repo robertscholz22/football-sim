@@ -1,6 +1,8 @@
 // Formation slots in normalised block coordinates, team frame (attacking +x; +y = left side).
 // depth: 0 = back line, 1 = front line of the block. width: -1 = right touchline side, +1 = left.
-// `out_pos` = out-of-possession shape (here 4-1-4-1), `in_pos` = in-possession shape (2-3-5-like 4-3-3).
+// `out_pos` = out-of-possession shape (here 4-1-4-1), `in_pos` = in-possession shape: a 2-3-5, the creation-phase shape
+// with five players across the front [UEFA-TR24 p.50; UEFA-TR20 p.35]: the #8s rise to the "upper box" in the
+// half-spaces beside the centre-forward (P17), the full-backs and the pivot behind them (the "3"; TR-05 2+3).
 // Roles (docs/player-brain.md 5.3): GK, CB×2, FB×2, DM, CM8×2, W×2, CF; the wingers defend as wide midfielders (4-5-1).
 // BU-02: full-backs are wide outlets in possession; ATT-10: central midfielders staggered.
 (
@@ -12,8 +14,8 @@
         (role: CB, label: "LCB", out_pos: (0.0, 0.35),   in_pos: (0.0, 0.42)),
         (role: FB, label: "LB",  out_pos: (0.0, 1.00),  in_pos: (0.38, 1.00)),
         (role: DM, label: "DM",  out_pos: (0.28, 0.0),  in_pos: (0.22, 0.0)),
-        (role: CM8, label: "RCM", out_pos: (0.5, -0.41), in_pos: (0.5, -0.44)),
-        (role: CM8, label: "LCM", out_pos: (0.5, 0.41),  in_pos: (0.64, 0.40)),
+        (role: CM8, label: "RCM", out_pos: (0.5, -0.41), in_pos: (0.82, -0.42)),
+        (role: CM8, label: "LCM", out_pos: (0.5, 0.41),  in_pos: (0.9, 0.38)),
         (role: W,   out_role: Some(WM), label: "RW",  out_pos: (0.55, -1.00), in_pos: (0.94, -1.00)),
         (role: CF, label: "ST",  out_pos: (1.0, 0.0),   in_pos: (1.0, 0.0)),
         (role: W,   out_role: Some(WM), label: "LW",  out_pos: (0.55, 1.00), in_pos: (0.94, 1.00)),

@@ -693,7 +693,7 @@ fn possession_movement(state: &MatchState, cfg: &SimConfig, id: PlayerId, anchor
     let rechoose = held.is_none()
         || movement::rechoose(state, cfg, p)
         || held_point.is_some_and(|q| (q - pos).length() < 1.5)
-        || held.is_some_and(|k| points(k).is_empty())
+        || held.is_some_and(|k| points(k).is_empty() && held_offer.is_none())
         || (held.is_some_and(|k| matches!(k, Movement::Pin | Movement::Check | Movement::Drop | Movement::RunInBehind))
             && (p.plan.line - b.offside_line).abs() > LINE_BAND)
         || (ps.is_some_and(|s| s.from_t > 0.0) && !p.plan.projected);
@@ -711,7 +711,8 @@ fn possession_movement(state: &MatchState, cfg: &SimConfig, id: PlayerId, anchor
     }
     // Following a movement: a check or a drop keeps its point; the others follow their references, nearest to the
     // point he offered at and away from a team-mate's offer (two offers within `offer_overlap_m` are one option,
-    // ATT-10).
+    // ATT-10); one he took up for the next carrier (8.4), which the carrier on the ball has no point of, keeps its
+    // point.
     if choice.is_none() {
         mv.concept = p.plan.concept;
     }
@@ -725,7 +726,7 @@ fn possession_movement(state: &MatchState, cfg: &SimConfig, id: PlayerId, anchor
             })
         };
         let near = |q: &Vec2| held_offer.map_or(0.0, |o| (*q - o).length()) + if taken(q) { 1e3 } else { 0.0 };
-        match held_point.or_else(|| points(k).into_iter().min_by(|a, c| near(a).total_cmp(&near(c)))) {
+        match held_point.or_else(|| points(k).into_iter().min_by(|a, c| near(a).total_cmp(&near(c)))).or(held_offer) {
             Some(q) => (k, q),
             None => (Movement::Hold, sp.hold),
         }
@@ -1021,6 +1022,9 @@ pub struct MoveScore {
     pub marginal: f32,
     /// What the response of the man marking him adds to his team-mates' offers (8.2), before his look-ahead weight.
     pub space: f32,
+    /// What it adds to the expected best option of the team-mate the carrier most likely plays to next, times the
+    /// probability of that pass (8.4, level 1), before his look-ahead weight.
+    pub next: f32,
     pub effort: f32,
     /// Role prior (layer 1) and instructions (layer 2).
     pub bias: f32,
@@ -1031,7 +1035,7 @@ pub struct MoveScore {
 impl MoveScore {
     /// Its value to a player who looks `look` ahead (`movement::lookahead`).
     pub fn value(&self, look: f32) -> f32 {
-        self.marginal + look * self.space - self.effort + self.bias
+        self.marginal + look * (self.space + self.next) - self.effort + self.bias
     }
 }
 
@@ -1047,8 +1051,11 @@ pub fn move_scores(state: &MatchState, cfg: &SimConfig, id: PlayerId) -> Option<
 /// Values (section 8) of the movements in `p`'s repertoire (his role's prior > 0, and hold): each is worth what its
 /// offer adds to the carrier's expected best option (marginal value, 8.1 / 8.3), plus — weighted by his look-ahead —
 /// what the response of the man marking him (he follows a check or a drop and tracks a run, DEF-04 / IND-04) adds to
-/// his team-mates' offers (space value, 8.2), less its effort (8.5); the role's movement prior (layer 1) and the
-/// instructions (layer 2) are shares of the local value scale. He prices the offers against the opponents as he
+/// his team-mates' offers (space value, 8.2) and what his offer adds to the options of the team-mate the carrier most
+/// likely plays to next (8.4: "values offers to the next carrier too"; a box run as the ball goes wide), less its
+/// effort (8.5). The role's movement prior (layer 1) is a share of the local value scale; an instruction (layer 2) a
+/// share of the movement's own worth (or that scale, if larger), so a full one at full adherence doubles or cancels
+/// it. He prices the offers against the opponents as he
 /// expects them once they have responded to his team-mates' movements (look-ahead level 1, 8.4). A run into the area
 /// a team-mate's run already attacks adds little to the carrier's best option, so runners take different lanes
 /// (TR-03, FT-03), and a player goes where his offer adds most, which is where his side can outnumber the
@@ -1058,56 +1065,96 @@ fn score_moves(state: &MatchState, cfg: &SimConfig, p: &Player, ps: &offer::Pass
     let fr = state.frame(p.side);
     let look = movement::lookahead(p);
     let opps = offer::responded(state, cfg, &offer::opponents(state, p.side), p, look);
-    let mates: Vec<&Player> = state.squad(p.side).iter().filter(|m| m.id != p.id && m.id != ps.id && !m.is_gk()).collect();
+    let mates_of = |ps: &offer::Passer| -> Vec<&Player> {
+        state.squad(p.side).iter().filter(|m| m.id != p.id && m.id != ps.id && !m.is_gk()).collect()
+    };
+    let mates = mates_of(ps);
     // Team-mates offer where their own movement offers, as far as he has read it (section 7), or else where they
-    // stand.
-    let seen: Vec<(Movement, Option<Vec2>)> = mates.iter().map(|m| reading::seen(state, ai, p.id, m)).collect();
-    let offers_of = |opps: &[offer::Opp]| -> Vec<offer::Opt> {
+    // stand (the carrier, once he has played the ball, where he played it from).
+    let seen = |m: &Player| -> (Vec2, bool) {
+        let (kind, offer) = reading::seen(state, ai, p.id, m);
+        match offer.filter(|_| m.plan.cue.in_possession && m.id != ps.id) {
+            Some(o) => (fr.to_team(o), kind == Movement::RunInBehind),
+            None => (fr.to_team(m.pos), false),
+        }
+    };
+    let offers_of = |to: &offer::Passer, mates: &[&Player], opps: &[offer::Opp]| -> Vec<offer::Opt> {
         mates
             .iter()
-            .zip(&seen)
-            .map(|(m, &(kind, offer))| {
-                let (pt, through) = match offer.filter(|_| m.plan.cue.in_possession) {
-                    Some(o) => (fr.to_team(o), kind == Movement::RunInBehind),
-                    None => (fr.to_team(m.pos), false),
-                };
-                offer::offer(state, cfg, ps, m, pt, through, opps)
+            .map(|m| {
+                let (pt, through) = seen(m);
+                offer::offer(state, cfg, to, m, pt, through, opps)
             })
             .collect()
     };
-    let base = offers_of(&opps);
+    let base = offers_of(ps, &mates, &opps);
     let keep = offer::keep_value(state, cfg, ps, look * ai.lookahead_horizon_s);
     let temp = offer::temperature(state, cfg, ps);
     let e0 = offer::expected_best(keep, &base, ai.offer_overlap_m, temp);
+    // Look-ahead level 1 (8.4): the carrier's likely next pass, and that receiver's options without him. Not for the
+    // receiver of a pass in flight, who is already the next carrier.
+    let next = (look > 0.0 && ps.from_t <= 0.0)
+        .then(|| offer::next_passer(state, cfg, ps, &mates, &base, keep, temp))
+        .flatten()
+        .map(|(nx, prob)| {
+            let mates = mates_of(&nx);
+            let base = offers_of(&nx, &mates, &opps);
+            let keep = offer::keep_value(state, cfg, &nx, look * ai.lookahead_horizon_s);
+            let temp = offer::temperature(state, cfg, &nx);
+            let e0 = offer::expected_best(keep, &base, ai.offer_overlap_m, temp);
+            (nx, prob, base, keep, temp, e0)
+        });
     let marker = offer::marker_of(state, cfg, p);
     let scale = possession_value(ps.at, ai) + ai.value_base;
     let instr = resolve_player(&p.instructions);
     let adh = adherence(&p.attrs, p.instruction_familiarity(true), false);
+    // The carrier's options with his offer last (and the next carrier's), refilled at every candidate point.
+    let none = offer::Opt { point: Vec2::ZERO, avail: 0.0, value: 0.0 };
+    let mut with: Vec<offer::Opt> = base.iter().copied().chain([none]).collect();
+    let mut with_next: Vec<offer::Opt> = next.as_ref().map_or(Vec::new(), |(_, _, base, ..)| base.iter().copied().chain([none]).collect());
     let mut out = Vec::new();
     for &k in sp.repertoire().iter().filter(|&&k| k == Movement::Hold || sp.role.prior(k) > 0.0) {
         let through = k == Movement::RunInBehind;
-        // Its point: the one whose offer adds most to the carrier's options (a box run to the spot no team-mate takes,
-        // FT-03); an offer the carrier cannot play (out of sight or range, behind a team-mate) ranks last.
-        let Some((own, marginal)) = offer_points(cfg, p, sp, Some(ps), k)
+        // Its point: the one whose offer adds most to the carrier's options and, as far as he looks ahead, to the
+        // next carrier's (a box run to the spot no team-mate takes, FT-03); an offer neither can play (out of sight
+        // or range, behind a team-mate) ranks last.
+        let mut points = offer_points(cfg, p, sp, Some(ps), k);
+        if let Some((nx, ..)) = &next {
+            for q in offer_points(cfg, p, sp, Some(nx), k) {
+                if !points.contains(&q) {
+                    points.push(q);
+                }
+            }
+        }
+        let Some((own, marginal, ahead)) = points
             .into_iter()
             .map(|q| {
                 let own = offer::offer(state, cfg, ps, p, q, through, &opps);
-                let mut with = base.clone();
-                with.push(own);
-                (own, offer::expected_best(keep, &with, ai.offer_overlap_m, temp) - e0)
+                *with.last_mut().unwrap() = own;
+                let marginal = offer::expected_best(keep, &with, ai.offer_overlap_m, temp) - e0;
+                let ahead = next.as_ref().map(|(nx, prob, _, keep, temp, e0)| {
+                    let o = offer::offer(state, cfg, nx, p, q, through, &opps);
+                    *with_next.last_mut().unwrap() = o;
+                    (o.avail, prob * (offer::expected_best(*keep, &with_next, ai.offer_overlap_m, *temp) - e0))
+                });
+                (own, marginal, ahead)
             })
             .max_by(|a, c| {
-                let rank = |(o, m): &(offer::Opt, f32)| if o.avail > 0.0 { (*m, o.value) } else { (f32::MIN, f32::MIN) };
+                let rank = |(o, m, n): &(offer::Opt, f32, Option<(f32, f32)>)| {
+                    let (na, nv) = n.unwrap_or((0.0, 0.0));
+                    if o.avail > 0.0 || na > 0.0 { (*m + look * nv, o.value) } else { (f32::MIN, f32::MIN) }
+                };
                 let (ra, rc) = (rank(a), rank(c));
                 ra.0.total_cmp(&rc.0).then(ra.1.total_cmp(&rc.1))
             })
         else {
             continue;
         };
+        let ahead = ahead.map_or(0.0, |(_, v)| v);
         let space = match marker {
             Some(o) if !matches!(k, Movement::Hold | Movement::Pin) => {
                 let moved = offer::after_response(state, cfg, &opps, p, o, own.point);
-                offer::expected_best(keep, &offers_of(&moved), ai.offer_overlap_m, temp) - e0
+                offer::expected_best(keep, &offers_of(ps, &mates, &moved), ai.offer_overlap_m, temp) - e0
             }
             _ => 0.0,
         };
@@ -1134,8 +1181,9 @@ fn score_moves(state: &MatchState, cfg: &SimConfig, p: &Player, ps: &offer::Pass
             Movement::Invert => instr.invert,
             _ => 0.0,
         };
-        let bias = scale * (ai.role_prior_weight * sp.role.prior(k) + ai.movement_instruction_weight * instruction);
-        out.push(MoveScore { kind: k, point: own.point, own: own.value, marginal, space, effort, bias, scale });
+        let worth = (marginal + look * (space + ahead) - effort).abs().max(scale);
+        let bias = scale * ai.role_prior_weight * sp.role.prior(k) + worth * ai.movement_instruction_weight * instruction;
+        out.push(MoveScore { kind: k, point: own.point, own: own.value, marginal, space, next: ahead, effort, bias, scale });
     }
     out
 }

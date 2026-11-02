@@ -513,6 +513,11 @@ frequency comes from stats.
 | 1 | anticipates the carrier's next action: which pass he is likely to play (a cheap form of the on-ball ranking) and when he turns open. Values offers to the next carrier too (a third-man run starts as the pass to the 9 is struck). Anticipates the opponents' first response (the line drops, the marker follows) |
 | 2 | two actions ahead: combinations (ATT-20) |
 
+Implemented (watch round, 2026-11-02): level 1 as the carrier's most likely pass (softmax over keeping and the
+team-mates' offers, `offer::next_passer`), whose receiver is the next carrier; a movement's value adds what its offer
+adds to his options, times that pass's probability, and its candidate points include those offered to him. The
+opponents' first response (the marker follows, `offer::responded`) was there before. Level 2 is not implemented.
+
 The horizon is continuous: the weight a player gives to level-1 and level-2 values, and how many seconds ahead he
 projects. Two ratings set it ([attributes.md](attributes.md)):
 - **instinct** (anticipation): how early and how accurately he projects physical events. It also sets reaction time

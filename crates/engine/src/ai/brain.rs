@@ -299,19 +299,22 @@ pub fn defensive_block(d: &DefendingTactics, ball: Vec2, pressured: bool, recove
     Block { line_x, front_x: line_x + length, centre_y, half_width }
 }
 
-/// ATT-11: a per-third value (own, middle, final third) at team-frame x: linear between the centres of the thirds,
-/// held beyond them.
-pub fn by_third(v: [f32; 3], x: f32) -> f32 {
-    let t = (x / (LENGTH / 3.0)).clamp(-1.0, 1.0);
-    if t < 0.0 { v[1] + t * (v[1] - v[0]) } else { v[1] + t * (v[2] - v[1]) }
+/// ATT-11: a per-third value (own, middle, final third) at team-frame x: linear between the ball positions `at` it
+/// holds at, held beyond the outer ones.
+pub fn by_third(v: [f32; 3], at: [f32; 3], x: f32) -> f32 {
+    if x < at[1] {
+        v[1] + (v[0] - v[1]) * ((x - at[1]) / (at[0] - at[1])).clamp(0.0, 1.0)
+    } else {
+        v[1] + (v[2] - v[1]) * ((x - at[1]) / (at[2] - at[1])).clamp(0.0, 1.0)
+    }
 }
 
 /// In-possession shape (ATT-11 width and depth, TR-05 via the back line): the back line at the height and the team at
 /// the width real teams keep with the ball where it is, the front on the opponents' offside line.
 pub fn attacking_block(ball: Vec2, offside: f32, t: &ResolvedTactics, tc: &TacticsConfig) -> Block {
-    let line_x = by_third(t.attacking.line, ball.x) - HALF_LENGTH;
+    let line_x = by_third(t.attacking.line, tc.att11_ball_x, ball.x) - HALF_LENGTH;
     let front_x = (offside - tc.att11_onside_margin).clamp(line_x + 25.0, HALF_LENGTH - 6.0);
-    let half_width = 0.5 * by_third(tc.att11_width, ball.x) * (0.55 + 0.45 * t.width);
+    let half_width = 0.5 * by_third(tc.att11_width, tc.att11_ball_x, ball.x) * (0.55 + 0.45 * t.width);
     let room = (HALF_WIDTH - tc.att11_touchline_margin - half_width).max(0.0);
     Block { line_x, front_x, centre_y: (0.15 * ball.y).clamp(-room, room), half_width }
 }

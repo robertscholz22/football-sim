@@ -440,8 +440,11 @@ impl Stats {
                 self.cal.gk_line_dist_sum += line - g.x;
             }
 
-            // ATT-11 in-possession shape.
+            // ATT-11 in-possession shape, outside the attacking transition (PH-01: FIFA's phases list it apart from
+            // build-up, progression and final third [FIFA-EFI]), timed from the regain.
+            let transition = state.time - state.possession_since < tc.ph01_attacking_transition_s;
             let in_phase = match brain.phase {
+                _ if transition => None,
                 TeamPhase::In(InPhase::BuildUp) => Some(0),
                 TeamPhase::In(InPhase::Progression) => Some(1),
                 TeamPhase::In(InPhase::FinalThird) => Some(2),

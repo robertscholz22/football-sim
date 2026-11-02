@@ -213,8 +213,8 @@ fn def06_block_shifts_to_the_ball_side_and_stays_on_the_pitch() {
 fn att11_in_possession_shape_follows_the_ball_through_the_thirds() {
     let tc = SimConfig::default().tactics;
     let t = resolve(&TeamInstructions::default(), &tc);
-    // With the ball at the centre of each third: the back line at the catalog height, the team at the catalog width.
-    for (i, x) in [-35.0, 0.0, 35.0].into_iter().enumerate() {
+    // With the ball at each phase's mean position: the back line at the catalog height, the team at the catalog width.
+    for (i, x) in tc.att11_ball_x.into_iter().enumerate() {
         let b = brain::attacking_block(Vec2::new(x, 0.0), HALF_LENGTH, &t, &tc);
         assert!((b.line_x + HALF_LENGTH - tc.att11_line[i]).abs() < 1e-3, "ball x {x}: line {}", b.line_x);
         assert!((2.0 * b.half_width - tc.att11_width[i]).abs() < 1e-3, "ball x {x}: width {}", 2.0 * b.half_width);
@@ -685,7 +685,12 @@ fn blk02_the_line_leader_calls_a_step_only_once_the_pressure_holds() {
 /// Phase D front-line scenario: the home right centre-mid on the ball at `ball` (home frame), facing forward, after
 /// the in-possession block has reached the line. Returns (scenario, carrier, centre-forward).
 fn front(seed: u64, ball: Vec2) -> (Scenario, PlayerId, PlayerId) {
-    let (mut sc, carrier) = common::settled(Scenario::with_config(seed, built_line()), Side::Home, Role::CM8, ball);
+    front_with(seed, ball, built_line())
+}
+
+/// As `front`, with configuration `cfg`.
+fn front_with(seed: u64, ball: Vec2, cfg: SimConfig) -> (Scenario, PlayerId, PlayerId) {
+    let (mut sc, carrier) = common::settled(Scenario::with_config(seed, cfg), Side::Home, Role::CM8, ball);
     for _ in 0..30 {
         sc.sim.state.time += 0.2;
         sc.think();
@@ -702,6 +707,7 @@ fn front(seed: u64, ball: Vec2) -> (Scenario, PlayerId, PlayerId) {
 /// goal (`blk05_line_mid` −20 before the watch round). At the sourced 37.5 m (BLK-05) the 5 m more behind the line make
 /// an open carrier's run in behind worth more than every other front movement and give a second runner a lane of his
 /// own 8 m away (docs/design.md, "Watch round", set A); these tests are about the choices at the geometry they set.
+/// The instruction test runs at the sourced line.
 fn built_line() -> SimConfig {
     let mut cfg = SimConfig::default();
     cfg.tactics.blk05_line_mid = -20.0;
@@ -831,7 +837,9 @@ fn att26_same_situation_a_runner_values_the_run_and_a_link_player_the_ball_to_fe
 
 #[test]
 fn att26_forward_runs_and_come_short_instructions_change_the_choice() {
-    let (mut sc, _, cf) = front(24, Vec2::new(0.0, -8.0));
+    // At the sourced block line: an instruction is a share of the movement's own worth, so it changes the choice
+    // however much the run in behind is worth there (watch round, finding 32).
+    let (mut sc, _, cf) = front_with(24, Vec2::new(0.0, -8.0), SimConfig::default());
     let [run0, short0, _] = front_shares(&sc, cf, 60);
     sc.sim.state.players[cf].instructions.forward_runs = Some(1.0);
     let [run1, _, _] = front_shares(&sc, cf, 60);
@@ -950,9 +958,14 @@ fn att26_the_ten_does_not_copy_the_strikers_run_and_offers_between_the_lines_it_
     hold_movement(&mut sc, cf, Movement::RunInBehind);
     let pulled = between(&sc);
     let copies = (0..10).filter(|&k| decide(&sc, am, k).kind == Movement::RunInBehind).count();
-    let drops = (0..10).filter(|&k| decide(&sc, am, k).kind == Movement::Drop).count();
+    // He offers between the opponents' midfield and back units: a drop, or a show for the next carrier that ends there.
+    let units = sc.sim.state.players[am].beliefs.opp_units.clone();
+    let [.., mid, def] = units[..] else { panic!("two opposing units: {units:?}") };
+    let drops = (0..10)
+        .filter(|&k| decide(&sc, am, k).offer.is_some_and(|o| (mid..def).contains(&fr.to_team(o).x)))
+        .count();
     assert!(pulled > pinned, "the 10's drop between the lines adds {pulled:.4} with the striker running, {pinned:.4} with him pinning");
-    assert!(copies == 0 && drops == 10, "with the striker running in behind the 10 runs too in {copies}, drops in {drops} of 10");
+    assert!(copies == 0 && drops == 10, "with the striker running in behind the 10 runs too in {copies}, offers between the lines in {drops} of 10");
 }
 
 #[test]
@@ -1053,7 +1066,9 @@ fn ft03_with_the_ball_wide_in_the_final_third_a_forward_runs_into_the_box_and_th
 
 #[test]
 fn ft03_box_runners_take_different_spots() {
-    // Two offers within `offer_overlap_m` are one option (ATT-10): the second runner adds most at another spot.
+    // Two offers within `offer_overlap_m` are one option (ATT-10): the second runner adds most at another FT-03 spot,
+    // for the carrier or the next carrier (8.4). The far post and the penalty spot are 5.7 m apart, so a run to one adds
+    // nothing to the carrier's cross with the other taken, but can add to the next carrier's options.
     let (mut sc, carrier) = situation(32, Role::W, Vec2::new(40.0, 27.0));
     let fr = home_frame(&sc);
     sc.sim.state.players[carrier].facing = fr.to_world(Vec2::new(0.6, -1.0).normalize()) - fr.to_world(Vec2::ZERO);
@@ -1069,7 +1084,7 @@ fn ft03_box_runners_take_different_spots() {
         let Some(s) = positioning::move_scores(&sc.sim.state, &sc.sim.cfg, id) else { continue };
         if let Some(b) = s.iter().find(|x| x.kind == Movement::BoxRun) {
             seen = true;
-            assert!((b.point - taken).length() >= sc.sim.cfg.ai.offer_overlap_m, "{id} runs to {:?}, taken {taken:?}", b.point);
+            assert!((b.point - taken).length() > 1.0, "{id} runs to {:?}, taken {taken:?}", b.point);
         }
     }
     assert!(seen, "another player can run into the box");
@@ -1208,7 +1223,8 @@ fn blk03_a_centre_back_steps_out_to_the_dropping_nine_the_line_shuffles_and_the_
         };
         let (fb_out, fb_held) = (weak_fb(&out), weak_fb(&held));
         assert!(fb_out.abs() < fb_held.abs() - 3.0, "ball {ball:?}: weak-side full-back at |y| {:.1}, holding {:.1}", fb_out.abs(), fb_held.abs());
-        // The weak-side winger's run in behind: worth more, as an offer and to the carrier, with the line shuffled.
+        // The weak-side winger's run in behind: worth more to the carrier with the line shuffled, and as an offer where
+        // it is on at all (with the ball on his side of the 9 it is a loss either way).
         let run = |sc: &Scenario| {
             let w = (0..PLAYERS_PER_TEAM)
                 .find(|&i| sc.sim.state.players[i].role == Role::W && fr.to_team(sc.sim.state.players[i].pos).y.signum() != ball.y.signum())
@@ -1217,7 +1233,10 @@ fn blk03_a_centre_back_steps_out_to_the_dropping_nine_the_line_shuffles_and_the_
             (best_of(&s, &[Movement::RunInBehind], |x| x.own), best_of(&s, &[Movement::RunInBehind], |x| x.marginal))
         };
         let ((own_out, m_out), (own_held, m_held)) = (run(&out), run(&held));
-        assert!(own_out > own_held && m_out > m_held, "ball {ball:?}: run own {own_out:.5} vs {own_held:.5}, marginal {m_out:.6} vs {m_held:.6}");
+        assert!(
+            (own_out > own_held || own_out.max(own_held) <= 0.0) && m_out > m_held,
+            "ball {ball:?}: run own {own_out:.5} vs {own_held:.5}, marginal {m_out:.6} vs {m_held:.6}"
+        );
     }
     // Without a line team-mate near enough to shift across, he does not step out.
     let (alone, cf) = nine_drops(Vec2::new(-3.0, 8.0), None, 5.0);
