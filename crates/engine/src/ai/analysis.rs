@@ -289,6 +289,8 @@ pub fn evaluate_pass(
         let spread = spread.unwrap_or(Vec2::ZERO);
         let read = super::reading::receive_delay(state, &cfg.ai, r, kicker);
         let (p_first, p_air, p_opp, loss, recv) = race(state, cfg, &traj, rp, read, side, from.truncate(), target, arrival, delay, spread);
+        let p_clear = 1.0 - mate_in_path(state, kicker, receiver, &traj, delay, &cfg.player);
+        let (p_first, p_air) = (p_first * p_clear, p_air * p_clear);
         let opp_time = state
             .squad(side.opponent())
             .iter()
@@ -347,7 +349,7 @@ pub fn evaluate_pass(
         }
     }
     // PRS-02: one opponent goes for the ball, the best placed.
-    let p_none = 1.0 - worst;
+    let p_none = (1.0 - worst) * (1.0 - mate_in_path(state, kicker, receiver, &traj, delay, &cfg.player));
     eval.p_intercept = worst;
 
     let opp_time = state
@@ -391,6 +393,25 @@ fn block(o: &Player, traj: &crate::ball::Trajectory, delay: f32, pc: &crate::con
     if o.is_gk() {
         return None;
     }
+    in_path(o, traj, delay, pc, pc.control_radius, pc.control_height)
+}
+
+/// K5: the passer sees his team-mates too. A team-mate the pass is not for that it reaches within his reaction time
+/// of the strike hits his body if it passes within `body_radius` below his height (`Simulation::mate_hit`): the chance
+/// that one does, the most likely of them.
+fn mate_in_path(state: &MatchState, kicker: PlayerId, receiver: Option<PlayerId>, traj: &crate::ball::Trajectory, delay: f32, pc: &crate::config::PlayerConfig) -> f32 {
+    state
+        .squad(side_of(kicker))
+        .iter()
+        .filter(|m| m.id != kicker && Some(m.id) != receiver)
+        .filter_map(|m| in_path(m, traj, delay, pc, pc.body_radius, m.attrs.height_cm / 100.0))
+        .map(|b| b.0)
+        .fold(0.0, f32::max)
+}
+
+/// `block` and `mate_in_path`: the first point of the path within `o`'s reaction time of the strike where the ball
+/// passes within `radius` of him (where he will be, carrying on with his movement) no higher than `top`.
+fn in_path(o: &Player, traj: &crate::ball::Trajectory, delay: f32, pc: &crate::config::PlayerConfig, radius: f32, top: f32) -> Option<(f32, f32, Vec2)> {
     for w in traj.samples.windows(2) {
         let (a, b) = (&w[0], &w[1]);
         if a.t >= o.kin.reaction {
@@ -401,7 +422,7 @@ fn block(o: &Player, traj: &crate::ball::Trajectory, delay: f32, pc: &crate::con
         let u = ((at - g0).dot(seg) / seg.length_squared().max(1e-6)).clamp(0.0, 1.0);
         let (t, g) = (a.t + u * (b.t - a.t), g0 + seg * u);
         let d = (at - g).length();
-        if t < o.kin.reaction && d < pc.control_radius && a.pos.z + u * (b.pos.z - a.pos.z) - BALL_RADIUS <= pc.control_height {
+        if t < o.kin.reaction && d < radius && a.pos.z + u * (b.pos.z - a.pos.z) - BALL_RADIUS <= top {
             let p = if d < pc.body_radius { pc.shot_body_block_p } else { pc.shot_leg_block_p * (0.75 + 0.25 * norm(o.attrs.instinct)) };
             return Some((p, t, g));
         }

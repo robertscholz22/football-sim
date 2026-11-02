@@ -2962,6 +2962,71 @@ Open after this set (S/watch/findings.md, "Set C runs"):
 - The low block is narrower and deeper than at D; the in-possession shape gained 1–2 m width and line but is still
   5 m narrow and 3–4 m deep; wide players' targets narrower and deeper than their anchors (later groups).
 
+## Set K: the keeper and slow balls (2026-11-02)
+
+Inventory first (S/watch/findings.md, "Set K inventory"): the last seconds before each of the 19 goals in 32
+matches that were not the scorer's own shot or header (`examples/goal_traces.rs`). Own goals were 0.47 per match.
+Groups by cause: (K1) time resolution, a line crossing logged by the ball's sub-steps stood even when a player met the
+ball before the line; (K2) attribution, a goal from a shot on target touched on its way in was an own goal unless the
+keeper had parried it; (K3) the keeper ignored balls going in that were not shots or under 12 m/s; (K4) how a free
+receiver meets a pass; (K5) passes ran into team-mates they were not for. Two more came from the traces of the
+changed engine: (K6) a defender's controlling touch carried the ball over his own goal line, (K7) a keeper's missed
+touch let a slow ball pass through his body.
+
+| change | physical explanation | randomness |
+|---|---|---|
+| K1 first event along the path | contacts use the ball's path through the tick; a player who meets it before it has wholly crossed a line plays it, and the crossing the sub-steps recorded did not happen (the ball is back where he met it) | – |
+| K2 attribution (stats only) | a shot on target that a defender or the keeper touches on its way in is still the shooter's goal, off the woodwork too, unless anyone touched it since | – |
+| K3 the keeper to the ball's path (GK-01, `brain::gk_path`) | any ball going into his goal is the same ball for him: he runs to the earliest point of its path in his area that he reaches before it (his hands' reach, his feet's for a team-mate's pass), not a claim | his reaction, the ball's path |
+| K3 feasible dives (`gk_dive_max_s` 1.0 s) | he dives only for a point he cannot reach on his feet and that a dive does reach in the time left, no earlier than his longest dive before the ball is there [IBRAHIM19]; earlier at a slow ball he would be on the ground when it arrives | the save roll |
+| K3 getting up (`beaten_recovery_s` 0.8 s) | after a dive he is on the ground and needs this to get up before he moves or dives again (a stated estimate, no published figure found), so chained dives are not locomotion | – |
+| K5 team-mates let a pass run | one who has seen a pass for someone else coming steps over or aside; before he could react to the kick it hits him, but only where his body is in its path (`body_radius`, below his height), and then it comes off his body as a square block; not when it is going into his own goal | the body-block roll, rebound |
+| K5 pricing (`analysis::mate_in_path`) | the passer sees his team-mates: the chance that one who is neither he nor the receiver is in the path within his reaction time multiplies the pass's chances | – |
+| K7 the keeper meets an on-goal ball at his body | standing in its path he takes it where it reaches him (one contact there, as an opponent meets a shot), where `gk_contact` judges his reach; a reach early it was still outside his area at the box edge, a miss left him on touch cooldown and the ball rolled through him | the hold roll |
+| K7 a fumble spills off him | a slow ball he fails to hold has met his hands and body: it comes off him out in front at 20–40 % of its speed (as a parry), not through him as the outfield touch roll let it | direction, speed |
+| K6 controlling touch inside the lines | the controlling touch goes with him at his own speed within the cone he can turn his run to, but not over a line he runs at: there he deadens it so that it stops short under rolling resistance (speed ≤ √(2·a·room) − √(2·a·lead)) and brakes behind it | the touch's execution error |
+
+Steps: K1 had K1–K3 and K5; K2 added the get-up after a dive, dives only with positive slack and the own-goal
+exception of K5 (traces: the keeper let a team-mate's misplaced pass run into his goal, and a keeper 13 m out chained
+short dives as a way of running); K3 added K6 and the keeper's contact at his body; K4 the fumble spill and
+`gk_dive_max_s` 0.9 → 1.0 s [IBRAHIM19]. Goals vary a lot between seed sets (K1 → K2: 3.42 → 2.88 per match on seeds
+1–40, 2.63 → 3.45 on 101–160), so goal counts are compared over 100 matches.
+
+Results (lab 40 matches on seeds 1–40 and 60 on 101–160; benches: contacts 12 matches, receptions and turnovers 6,
+goals 32, movement 3 seeds × 3 matches; real counts × 1.62, see "Per-game counts").
+
+| | C5 (set W+A) | K1 | K4 (this set) | real |
+|---|---|---|---|---|
+| own goals per match (goals bench) | 0.47 | 0.09 | 0.06 | plausibility |
+| goals per match, seeds 1–40 / 101–160 | 3.38 / 3.43 | 3.42 / 2.63 | 2.83 / 2.92 | plausibility |
+| goals ÷ xG, seeds 1–40 / 101–160 | 1.07 / 1.08 | 1.00 / 0.83 | 0.95 / 0.93 | – |
+| shots per team | 18.4 | 19.5 | 18.2 | 13–32.5 |
+| one-touch goals per match (100 matches) | 0.82 | 0.56 | 0.48 | plausibility |
+| own ground passes first touched by a team-mate who is not the receiver, per team | 57.5 | 10.5 | 10.9 | – |
+| blocks of passes / shots per team | 17.8 / 2.3 | 18.3 / 4.0 | 16.6 / 3.0 | 19.8 all (raw) |
+| throw-ins / corners / goal kicks per team | 19.4 / 3.6 / 8.7 | 19.3 / 3.2 / 9.5 | 19.0 / 2.6 / 8.7 | 23–28 / 7.3–8.9 / 11–13.6 |
+| open-play regains per match (turnovers) | 236 | 238 | 229 | ≈ 105 |
+| losses per s of controlled receptions, nearest opponent 0–1.5 / 5–8 m | 0.240 / 0.043 | 0.316 / 0.045 | 0.293 / 0.043 | 0.28 / 0.016 |
+| off-ball speed, walking | 3.07 m/s, 34 % | 3.09 m/s, 33 % | 3.05 m/s, 34 % | – |
+
+The fall in goals is the own goals that are gone: without them goals ÷ xG is ≈ 0.92 in C5 and in K4. Of the 2 own
+goals left in 32 matches, one is an off-target shot deflected in, one a defender's miscontrol of a fast cross on his
+goal line. One-touch goals per match fell from 0.82 to 0.48 while first-time shots stayed the same (seeds 101–160:
+336 with xG 41.5 in C5, 326 with xG 41.9 in K3); C5 counted own goals off defenders' first-time passes among them
+(≈ 0.12 per match), the rest is about 1.5–2 standard errors.
+
+Open after this set:
+- K4 a free receiver meeting a pass at speed: a keeper running out onto a team-mate's back pass passed its line 1 m
+  to the side and it rolled into the goal (K3, seed 14); receivers' closing speed shows no general cost (contacts).
+- `pass_touch_prob` (an opponent's chance to touch a pass within reach) still ignores where the ball's path passes
+  him: a ball running into his feet is missed 20–35 % of the time at pass speeds (K7 traces). To unify with C1 and
+  the pass pricing (W+A open item).
+- A player meeting a loose ball (no flight) does not decide how to play it as it comes (A2 covers only the
+  opponents' passes): the defender running back onto a loose ball near his goal could not clear it first time.
+- One-touch goals per match 0.82 → 0.48: re-check over 200 matches.
+- The W+A open items (losses of receptions in space, clearances 0.1 per team, the low block and the in-possession
+  width) are unchanged.
+
 ## Open after the plan
 
 All milestones of the plan (M0–M8) are done. Statuses per principle are in the catalog; the open items are listed in

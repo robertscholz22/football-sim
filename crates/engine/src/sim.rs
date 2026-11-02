@@ -9,7 +9,7 @@ use crate::ai::deviation::{self, decision_interval, drift_sigma, update_drift};
 use crate::ai::execution::{ExecInput, natural_foot, perturb, set_up, setup_time, setup_turn};
 use crate::ai::on_ball::{self, Action, Situation, receive_dir, receiver_pressured};
 use crate::ai::{movement, positioning, reading, scan};
-use crate::ai::reach::{intercept, pass_reaction, reception_point};
+use crate::ai::reach::{intercept, pass_reaction, reception_point, time_to_reach};
 use crate::ai::brain::{self, Beliefs, DefDuty};
 use crate::ai::world::World;
 use crate::ball::{
@@ -89,8 +89,14 @@ pub struct Simulation {
     /// C4: time of the ball's last visible change of course (a kick, a touch, a deflection, the woodwork); the keeper's
     /// reaction runs from it.
     course_t: f32,
-    /// The last parry: shooter, time, the restart the shot was struck from. A parry that goes in is the shooter's goal.
-    parry: Option<(PlayerId, f32, Option<RestartKind>)>,
+    /// K2: time of the last change of course by a player (as `course_t`, without the woodwork).
+    touch_t: f32,
+    /// K2: the last touch by a defender (or the keeper) on an opponent's shot that was going in: shooter, toucher,
+    /// time, the restart the shot was struck from. Deflected, blocked or parried, if it still goes in with no touch
+    /// since, the goal is the shooter's (the usual attribution: an own goal only for a ball that was not going in).
+    shot_touch: Option<(PlayerId, PlayerId, f32, Option<RestartKind>)>,
+    /// K1: the ball at the start of this tick's physics step (the path contacts are resolved along).
+    ball_before: Ball,
     /// Law 5.3: a foul the referee is playing advantage after, and cards for fouls after which advantage ensued, to
     /// be shown at the next stoppage.
     advantage: Option<Advantage>,
@@ -195,7 +201,9 @@ impl Simulation {
             set_shot: None,
             gk_anticipates: None,
             course_t: 0.0,
-            parry: None,
+            touch_t: 0.0,
+            shot_touch: None,
+            ball_before: Ball::at_rest(Vec2::ZERO),
             advantage: None,
             pending_cards: Vec::new(),
             corner_at: [f32::MIN; 2],
@@ -378,6 +386,7 @@ impl Simulation {
         locomotion::separate(&mut self.state.players, self.cfg.player.body_radius);
         let before = self.state.ball.pos;
         self.attach_ball();
+        self.ball_before = self.state.ball;
         self.step_ball(dt);
         // A carried ball is put at the carrier's foot before the physics step, which sees only the crossings within
         // its own sub-steps: check the whole tick's movement too, or a carrier can take the ball over a line unseen.
@@ -1341,6 +1350,7 @@ impl Simulation {
         self.set_shot = None;
         self.gk_anticipates = None;
         self.course_t = self.state.time;
+        self.touch_t = self.state.time;
         if let Some(f) = self.state.flight.take()
             && let Some(r) = f.receiver
         {
@@ -1360,11 +1370,18 @@ impl Simulation {
     /// margin, just far enough to have it within standing reach and only as fast as the time left demands; his
     /// reaction runs from the ball's last visible change of course.
     fn goalkeepers(&mut self, now: f32) {
-        // GK-01: the keeper commits to balls that are going in; wide ones he lets go (he may still touch them).
-        if !self.traj.on_goal || self.state.control.is_some() {
-            return;
+        // A dive ends on the ground: he gets up before he moves freely again.
+        let rec = self.cfg.duel.beaten_recovery_s;
+        for p in self.state.players.iter_mut().filter(|p| p.is_gk()) {
+            if let Body::Diving { until, .. } = p.body
+                && now >= until
+            {
+                p.body = Body::Recovering { until: now + rec };
+            }
         }
-        if !self.state.flight.is_some_and(|f| f.kind == KickKind::Shot) && self.state.ball.speed() < 12.0 {
+        // GK-01: the keeper commits to balls that are going in, at any speed and whoever played them (K3); wide ones he
+        // lets go (he may still touch them).
+        if !self.traj.on_goal || self.state.control.is_some() {
             return;
         }
         let defending = referee::defending_side(&self.state, self.traj.goal_x_sign);
@@ -1385,12 +1402,15 @@ impl Simulation {
         }
         let fr = self.state.frame(defending);
         let reach = g.kin.gk_dive_reach;
-        let standing = self.cfg.player.gk_standing_reach;
+        // His hands, or for a team-mate's pass he may not handle his feet (`gk_can_handle`).
+        let own_pass = self.state.flight.is_some_and(|f| side_of(f.kicker) == defending && f.kind != KickKind::Shot);
+        let standing = if own_pass { pc.control_radius } else { pc.gk_standing_reach };
         let dive_speed = self.cfg.player.gk_dive_speed;
         // Planned from the ball as it is now, so a sample's time is the time the keeper has left (`self.traj` may be
         // up to a team tick old).
         let traj = predict(&self.state.ball, &self.plan, TRAJ_HORIZON, TRAJ_SAMPLE_DT);
         let mut best: Option<(f32, Vec2, f32)> = None;
+        let mut on_foot = false;
         for s in &traj.samples {
             if traj.exit_time.is_some_and(|e| s.t > e + 0.05) {
                 break;
@@ -1409,17 +1429,31 @@ impl Simulation {
             if best.is_none_or(|(b, _, _)| slack > b) {
                 best = Some((slack, gpt, s.t));
             }
+            // K3: a point he gets to on his feet (running to its path, `brain::gk_path`) needs no dive.
+            on_foot |= time_to_reach(g, gpt, standing, true) <= s.t;
         }
-        let Some((_, point, t)) = best else { return };
+        let Some((slack, point, t)) = best else { return };
         let to = point - g.pos;
-        if to.length() <= standing {
+        // A dive that cannot reach the ball anywhere only puts him on the ground: he runs on (`brain::gk_path`).
+        if to.length() <= standing || on_foot || slack < 0.0 {
+            return;
+        }
+        // K3: he dives as late as still gets him there: no earlier than his longest dive before the ball is at the
+        // point (diving sooner at a slow ball he would be on the ground when it comes). Not while a player who takes
+        // it before then is set to receive it.
+        if t > pc.gk_dive_max_s {
+            return;
+        }
+        if let Some(r) = self.state.flight.and_then(|f| f.receiver)
+            && matches!(self.state.players[r].intent, Intent::Receive { t: rt, .. } if rt < now + t)
+        {
             return;
         }
         let dur = t.max(0.15);
         let need = to.length() - (standing - GK_DIVE_MARGIN);
         let v = (to.normalize() * need / dur).clamp_length_max(dive_speed);
         let p = &mut self.state.players[gk];
-        p.body = Body::Diving { until: now + dur.min(0.9), dir: v };
+        p.body = Body::Diving { until: now + dur.min(self.cfg.player.gk_dive_max_s), dir: v };
         p.debug.label = "dive".into();
         p.debug.rules = vec!["GK-01"];
     }
@@ -1477,10 +1511,18 @@ impl Simulation {
         if self.tackles(now) {
             return;
         }
-        let ball = self.state.ball;
-        let b0 = ball.pos - ball.vel * self.cfg.timing.dt;
+        let mut ball = self.state.ball;
+        let b0 = self.ball_before.pos;
         let seg = ball.pos - b0;
         let shooter = self.state.flight.filter(|f| f.kind == KickKind::Shot).map(|f| f.kicker);
+        // K5: a team-mate of the passer the pass is not for, unless it is going into his own goal (then letting it run is
+        // no longer free).
+        let goal_side = self.traj.on_goal.then(|| referee::defending_side(&self.state, self.traj.goal_x_sign));
+        let own_goal_bound = self.state.flight.is_some_and(|f| goal_side == Some(side_of(f.kicker)));
+        let not_for = |id: PlayerId| {
+            !own_goal_bound
+                && self.state.flight.is_some_and(|f| side_of(f.kicker) == side_of(id) && f.kind != KickKind::Shot && f.receiver.is_some_and(|r| r != id))
+        };
         // Closest eligible player to the ball's path during this tick.
         let mut best: Option<(f32, PlayerId, Vec3)> = None;
         for p in &self.state.players {
@@ -1498,8 +1540,10 @@ impl Simulation {
                 1.0
             };
             // An opponent meets a shot where it passes closest to him: one roll there, not a leg's reach early (a
-            // missed stretch would leave him on touch cooldown when the ball reaches his body).
-            if u > 1.0 && shooter.is_some_and(|k| side_of(k) != p.side) {
+            // missed stretch would leave him on touch cooldown when the ball reaches his body). So does a keeper any
+            // ball heading into his goal (set K): he stands in its path (GK-01) and takes it at his body, where
+            // `gk_contact` judges his reach; met a reach early it is still outside his area at the box edge.
+            if u > 1.0 && (shooter.is_some_and(|k| side_of(k) != p.side) || p.is_gk() && goal_side == Some(p.side)) {
                 continue;
             }
             let u = u.clamp(0.0, 1.0);
@@ -1513,6 +1557,13 @@ impl Simulation {
             } else {
                 pc.control_radius
             };
+            // K5: one who has seen it coming lets it run past him (he steps over or aside: not his ball); before he could
+            // react to the kick it still hits him, but only where his body is in its path.
+            let radius = match self.state.flight.filter(|_| not_for(p.id)) {
+                Some(f) if now - f.start_t < p.kin.reaction && bp.z - BALL_RADIUS <= p.attrs.height_cm / 100.0 => pc.body_radius,
+                Some(_) => continue,
+                None => radius,
+            };
             if d > radius {
                 continue;
             }
@@ -1521,8 +1572,27 @@ impl Simulation {
             }
         }
         let Some((d, id, bp)) = best else { return };
+        let mate_in_path = not_for(id);
+        // K1: the first event along the ball's path happens. A player who meets it before it has wholly crossed a line
+        // plays it, and the crossing that the ball's sub-steps recorded did not happen (the ball is back where he met
+        // it, as it was moving then); one who meets it only beyond the line meets a ball out of play.
+        if self.ball_events.iter().any(|e| matches!(e, BallEvent::Goal { .. } | BallEvent::Out { .. })) {
+            if bp.x.abs() > HALF_LENGTH + BALL_RADIUS || bp.y.abs() > HALF_WIDTH + BALL_RADIUS {
+                return;
+            }
+            self.ball_events.retain(|e| !matches!(e, BallEvent::Goal { .. } | BallEvent::Out { .. }));
+            self.state.ball = Ball { pos: bp, ..self.ball_before };
+            ball = self.state.ball;
+        }
         // Law 11.2: a player marked offside who plays the ball (or challenges for it, below) is penalised.
         if self.offside_offence(id) {
+            return;
+        }
+        if let Some(f) = self.state.flight.filter(|f| f.kind == KickKind::Shot && f.on_goal && side_of(f.kicker) != side_of(id)) {
+            self.shot_touch = Some((f.kicker, id, now, self.set_shot));
+        }
+        if mate_in_path {
+            self.mate_hit(id, now);
             return;
         }
         let height = bp.z - BALL_RADIUS;
@@ -1567,6 +1637,28 @@ impl Simulation {
         }
     }
 
+    /// K5: a pass hits a team-mate it was not for before he could react to it: it comes off his body, as a kick an
+    /// opponent blocks square on (`foot_contact`), with the chance that his body is in the way.
+    fn mate_hit(&mut self, id: PlayerId, now: f32) {
+        if !self.rng.chance(self.cfg.player.shot_body_block_p) {
+            self.state.players[id].touch_cooldown_until = now + 0.5;
+            return;
+        }
+        let ball = self.state.ball;
+        let d_in = ball.vel.truncate().normalize_or(Vec2::X);
+        let v = Vec2::from_angle(self.rng.range(-0.8, 0.8)).rotate(-d_in) * ball.vel.truncate().length() * self.rng.range(0.15, 0.35);
+        let mut b = ball;
+        b.pos.z = b.pos.z.max(BALL_RADIUS);
+        b.kick(v.extend(self.rng.range(0.0, 3.0)), Vec3::ZERO);
+        self.state.ball = b;
+        self.pending_pass = None;
+        self.clear_flight();
+        self.state.last_touch = Some(id);
+        self.state.players[id].touch_cooldown_until = now + 0.4;
+        self.push(EventKind::Miscontrol { by: id });
+        self.update_brains(now);
+    }
+
     /// The opponent of `id` best placed to challenge him for a high ball at `bp` (`height` above the ground): an
     /// outfield player within `aerial_contest_radius` who can reach that height and is free to play it.
     fn aerial_challenger(&self, id: PlayerId, bp: Vec3, height: f32, now: f32) -> Option<PlayerId> {
@@ -1609,6 +1701,7 @@ impl Simulation {
         }
         self.clear_flight();
         self.played(id);
+        self.shot_touch = None;
         self.state.control = Some(id);
         self.state.last_touch = Some(id);
         self.state.last_touch_quality = quality;
@@ -1711,7 +1804,7 @@ impl Simulation {
         // stretch; a slow ball he steps to.
         let rel = ball.ground_vel() - p.vel;
         let pc = &self.cfg.player;
-        let stretch = if d < 1e3 && rel.length() > 0.3 {
+        let stretch = if rel.length() > 0.3 {
             let dir = rel.normalize();
             let off = dir.perp_dot(ball.ground_pos() - p.pos).abs().min(d);
             let t = (p.pos - ball.ground_pos()).dot(dir).max(0.0) / rel.length();
@@ -1768,10 +1861,14 @@ impl Simulation {
         if draw < p_ctrl {
             self.gain_control(id, p_ctrl, now);
             let drib = norm(self.state.players[id].attrs.dribbling);
+            let a = self.live.rolling_decel;
+            let room = line_dist(ball.ground_pos(), dir.normalize_or(Vec2::X));
             let p = &mut self.state.players[id];
             // The controlling touch goes with him at his own speed along it, so a player arriving at speed does not
-            // run past it.
+            // run past it; but not over a line he is running at (set K): there he deadens it so that it stops short
+            // under rolling resistance (lead 0.8 m, as `dribble_touch` adds it), and brakes behind it.
             let speed = (0.5 * p.kin.top_speed * (0.6 + 0.4 * drib)).max(p_vel.dot(dir));
+            let speed = speed.min(((2.0 * a * room).sqrt() - (2.0 * a * 0.8).sqrt()).max(0.0));
             p.intent = Intent::Carry { dir, speed };
             // Settle, then look up and decide (by composure; ATT-05: faster after a recent scan with nobody close,
             // slower on a stale picture; getting to the ball takes as long either way).
@@ -2004,7 +2101,6 @@ impl Simulation {
                 b.kick(v, Vec3::ZERO);
                 self.state.ball = b;
                 self.pending_pass = None;
-                self.parry = shooter.map(|sh| (sh, now, self.set_shot));
                 self.clear_flight();
                 self.state.last_touch = Some(gk);
                 self.state.players[gk].touch_cooldown_until = now + 0.6;
@@ -2012,11 +2108,24 @@ impl Simulation {
             }
         } else {
             let p_hold = (0.75 + 0.25 * norm(g.attrs.handling)).min(0.98);
+            let side = g.side;
+            self.note_touch(gk);
             if self.rng.chance(p_hold) {
-                self.note_touch(gk);
                 self.collect(gk, now);
             } else {
-                self.foot_contact(gk, f32::MAX, now);
+                // Set K: one he fails to hold has met his hands and body: it spills off him out in front, as a parry
+                // does, and cannot pass through him (as the touch roll of `foot_contact` let it).
+                self.played(gk);
+                let away = self.state.frame(side).to_world(Vec2::new(1.0, self.rng.range(-1.5, 1.5))).normalize_or(Vec2::X);
+                let mut b = ball;
+                b.pos.z = b.pos.z.max(BALL_RADIUS);
+                b.kick((away * speed * self.rng.range(0.2, 0.4)).extend(self.rng.range(0.0, 1.0)), Vec3::ZERO);
+                self.state.ball = b;
+                self.clear_flight();
+                self.state.last_touch = Some(gk);
+                self.state.players[gk].touch_cooldown_until = now + 0.4;
+                self.push(EventKind::Miscontrol { by: gk });
+                self.update_brains(now);
             }
         }
     }
@@ -2207,12 +2316,14 @@ impl Simulation {
                     let scoring = conceding.opponent();
                     self.state.score[scoring.index()] += 1;
                     let mut last = self.state.last_touch;
-                    // A shot the keeper parried into his own goal is the shooter's.
-                    let parried = self.parry.filter(|&(sh, t, _)| {
-                        side_of(sh) == scoring && now - t < 3.0 && last.is_some_and(|l| side_of(l) == conceding && self.state.players[l].is_gk())
-                    });
-                    if let Some((sh, ..)) = parried {
+                    // K2: a shot going in that a defender or the keeper touched last (no touch since, off the woodwork
+                    // or not) is the shooter's.
+                    let parried = self.shot_touch.filter(|&(sh, by, t, _)| side_of(sh) == scoring && last == Some(by) && self.touch_t <= t + 1e-3);
+                    if let Some((sh, by, ..)) = parried {
                         last = Some(sh);
+                        if !self.state.players[by].is_gk() {
+                            self.stats.teams[scoring.index()].on_target += 1;
+                        }
                     }
                     let own_goal = last.is_some_and(|l| side_of(l) == conceding);
                     let first_time = self.state.flight.is_some_and(|f| f.first_time);
@@ -2224,7 +2335,7 @@ impl Simulation {
                         if shot {
                             ts.on_target += 1;
                         }
-                        match if shot { self.set_shot } else { parried.and_then(|p| p.2) } {
+                        match if shot { self.set_shot } else { parried.and_then(|p| p.3) } {
                             Some(RestartKind::Penalty) => ts.penalty_goals += 1,
                             Some(RestartKind::FreeKick { .. }) => {
                                 ts.fk_on_target += u32::from(shot);
@@ -2295,6 +2406,14 @@ fn glance(rng: &mut SimRng, rel: Vec2, p_vel: Vec2, to_ball: Vec2, e: [f32; 2]) 
     let n = back * phi.cos() + out * phi.sin();
     let e = rng.range(e[0], e[1]);
     p_vel + rel - (1.0 + e) * rel.dot(n) * n
+}
+
+/// Distance (m) from `pos` along the unit vector `dir` to the first touch or goal line.
+fn line_dist(pos: Vec2, dir: Vec2) -> f32 {
+    let along = |p: f32, d: f32, half: f32| {
+        if d.abs() < 1e-6 { f32::MAX } else { (half.copysign(d) - p) / d }
+    };
+    along(pos.x, dir.x, HALF_LENGTH).min(along(pos.y, dir.y, HALF_WIDTH)).max(0.0)
 }
 
 /// The controlling touch goes only where the player can turn his run to: at most the angle whose sideways velocity

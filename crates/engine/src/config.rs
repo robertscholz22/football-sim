@@ -166,6 +166,11 @@ pub struct PlayerConfig {
     pub gk_dive_reach_min: f32,
     pub gk_dive_reach_max: f32,
     pub gk_dive_speed: f32,
+    /// Longest dive (s), take-off to the ball: a keeper dives no earlier than this before the ball reaches the point he
+    /// dives to (an earlier dive has him on the ground when it arrives); until then he runs to the ball's path. Elite
+    /// keepers' dives from the onset to the ball took 0.97 s (low balls) and 1.05 s (high) from the fastest stance
+    /// [IBRAHIM19].
+    pub gk_dive_max_s: f32,
     /// Goalkeeper reaction to a shot (s) at reflexes 20 and 1.
     pub gk_reaction_min: f32,
     pub gk_reaction_max: f32,
@@ -263,6 +268,7 @@ impl Default for PlayerConfig {
             gk_dive_reach_min: 1.9,
             gk_dive_reach_max: 2.7,
             gk_dive_speed: 5.5,
+            gk_dive_max_s: 1.0,
             gk_reaction_min: 0.12,
             gk_reaction_max: 0.32,
             gk_standing_reach: 1.2,
@@ -1323,6 +1329,8 @@ pub struct DuelConfig {
     /// Set D (C2): a dribble touch runs no further than this share of the gap between the ball and the tackle reach of
     /// an opponent near its path ahead, so the carrier gets there first (calibrated).
     pub touch_gap_share: f32,
+    /// A player who went to ground (a beaten tackle, a keeper's dive) is back on his feet and moving freely after this
+    /// (s); a stated estimate of getting up from lying, not calibrated.
     pub beaten_recovery_s: f32,
     pub tackle_duration_s: f32,
     /// Slope of the control logistic in the ball's difficulty …

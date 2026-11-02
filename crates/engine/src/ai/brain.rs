@@ -15,13 +15,15 @@ use super::positioning::{cover_point, in_shooting_range, opponent_pass_in_flight
 use super::reading;
 use super::shape::slot_point;
 use super::world::{Times, World};
-use crate::ball::BallMode;
+use super::reach::time_to_reach;
+use crate::ball::{BALL_RADIUS, BallMode, Trajectory};
 use crate::config::{SimConfig, TacticsConfig};
 use crate::match_state::{MatchState, PLAYERS_PER_TEAM, PlayPhase, RestartKind, side_of, team_range};
 use crate::pitch::{
     GOAL_AREA_DEPTH, HALF_LENGTH, HALF_WIDTH, LENGTH, PENALTY_AREA_DEPTH, PENALTY_AREA_HALF_WIDTH, Side, TeamFrame, Third, third_of,
 };
 use crate::player::{Body, KickKind, Player, PlayerId, norm};
+use crate::rules::referee;
 use crate::team::{
     BlockHeight, DefendingTactics, Duty, Formation, Lane, ResolvedTactics, TeamInstructions, Unit, adherence, applied_defending, resolve,
     resolve_player,
@@ -159,6 +161,9 @@ pub struct Beliefs {
     pub chase_t: f32,
     /// IND-07: the chaser is the first defender attacking an opponent's high ball.
     pub challenge: bool,
+    /// GK-01 (keeper only): a ball going into his goal, the point of its path he goes to (world) and when the ball is
+    /// there (`gk_path`).
+    pub gk_path: Option<(Vec2, f32)>,
     /// Time of the last block update (DEF-05 shift speed); negative = never updated.
     pub shape_t: f32,
 }
@@ -207,6 +212,7 @@ impl Default for Beliefs {
             challenge: false,
             chase_point: Vec2::ZERO,
             chase_t: 0.0,
+            gk_path: None,
             shape_t: -1.0,
         }
     }
@@ -614,7 +620,51 @@ pub fn update(state: &MatchState, world: &mut World, id: PlayerId, cfg: &SimConf
             (b.chaser, b.chase_point, b.chase_t, b.challenge) = (Some(j), m.chase_point, m.chase_t, m.challenge);
         }
     }
+    // GK-01: a ball going into his goal, at any speed and whoever played it last, the keeper goes to its path. Not a
+    // claim on it: team-mates still go for it.
+    b.gk_path = None;
+    if state.players[id].is_gk()
+        && state.is_live()
+        && state.control.is_none()
+        && state.ball.mode != BallMode::Held
+        && world.traj().on_goal
+        && referee::defending_side(state, world.traj().goal_x_sign) == side
+        && !state.flight.is_some_and(|f| f.receiver == Some(id))
+    {
+        b.gk_path = gk_path(state, world.traj(), id, cfg).map(|(pt, t)| (pt, now + t));
+    }
     b
+}
+
+/// GK-01: where keeper `id` goes to meet a ball going into his goal, and in how long it is there: the earliest point
+/// of its path in his penalty area that he reaches before it (within his hands' reach, or his feet's for a
+/// team-mate's pass he may not handle), else the one he misses by the least time (he dives for it,
+/// `Simulation::goalkeepers`).
+fn gk_path(state: &MatchState, traj: &Trajectory, id: PlayerId, cfg: &SimConfig) -> Option<(Vec2, f32)> {
+    let p = &state.players[id];
+    let fr = state.frame(p.side);
+    let pc = &cfg.player;
+    let own_pass = state.flight.is_some_and(|f| side_of(f.kicker) == p.side && f.kind != KickKind::Shot);
+    let reach = if own_pass { pc.control_radius } else { pc.gk_standing_reach };
+    let mut best: Option<(f32, Vec2, f32)> = None;
+    for s in &traj.samples {
+        if traj.exit_time.is_some_and(|e| s.t > e) {
+            break;
+        }
+        let pt = s.pos.truncate();
+        let tp = fr.to_team(pt);
+        if tp.x > -HALF_LENGTH + PENALTY_AREA_DEPTH || tp.y.abs() > PENALTY_AREA_HALF_WIDTH || s.pos.z - BALL_RADIUS > pc.gk_max_height {
+            continue;
+        }
+        let late = time_to_reach(p, pt, reach, true) - s.t;
+        if late <= 0.0 {
+            return Some((pt, s.t));
+        }
+        if best.is_none_or(|(l, _, _)| late < l) {
+            best = Some((late, pt, s.t));
+        }
+    }
+    best.map(|(_, pt, t)| (pt, t))
 }
 
 /// Team-mates' claims a player has read and holds fixed when he resolves the duties (section 7), by slot.

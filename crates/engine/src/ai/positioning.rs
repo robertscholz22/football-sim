@@ -1290,6 +1290,16 @@ fn goalkeeper(state: &MatchState, cfg: &SimConfig, id: PlayerId, mv: &mut Move) 
     mv.urgency = 0.8;
     let ball = b.ball_ref;
     let dist = (ball - goal).length();
+    // GK-01: a ball going into his goal (whichever side has the ball): he goes to its path, set there if he has time.
+    if let Some((pt, t)) = b.gk_path {
+        mv.target = pt;
+        mv.urgency = 1.0;
+        mv.brake = time_to_reach(p, pt, 0.0, false) + 0.2 < t - state.time;
+        mv.tracks = true;
+        mv.label = "to the ball's path";
+        mv.rules.push("GK-01");
+        return;
+    }
     if b.in_possession {
         // BU-01: support option behind the centre-backs; GK-02 still holds with the ball in shooting range, so he
         // is in goal if it is lost there.

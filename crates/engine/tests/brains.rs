@@ -28,7 +28,8 @@ fn exact_perception_gives_each_side_one_reading() {
     // since M6 (section 7): the leader's line call (BLK-02) with its hold timer and the block it moves (and the leader, the one nearest its middle), the defensive
     // concept and claims (with the first defender) that follow from the block, and a called chaser ("mine") with his point. A team-mate hears a
     // call at his next update, or reads it after his delay; until then he works from the last call he had, and the
-    // block, which shifts at a capped rate (DEF-05), takes a while to close the gap.
+    // block, which shifts at a capped rate (DEF-05), takes a while to close the gap. The keeper's path to a ball going
+    // into his goal (GK-01) is his own.
     let shared = |b: &Beliefs, r: &Beliefs| Beliefs {
         claim_since: r.claim_since,
         claim_called: r.claim_called,
@@ -48,6 +49,7 @@ fn exact_perception_gives_each_side_one_reading() {
         chase_point: r.chase_point,
         chase_t: r.chase_t,
         challenge: r.challenge,
+        gk_path: r.gk_path,
         ..b.clone()
     };
     while !sim.finished() {
