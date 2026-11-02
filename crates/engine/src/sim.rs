@@ -415,6 +415,7 @@ impl Simulation {
         self.state.flight = None;
         self.state.possession = side;
         self.state.possession_since = self.state.time;
+        self.stats.regain = [None; 2];
         self.reset_brains();
         let now = self.state.time;
         self.state.phase =
@@ -448,6 +449,7 @@ impl Simulation {
             self.state.possession_since = now;
             self.stats.passes_in_possession[side.index()] = 0;
         }
+        self.stats.regain[side.index()] = None;
         self.reset_brains();
         // Set pieces near goal wait for the players to take up their positions (SP-01..04).
         let set = crate::ai::set_piece::organised(&self.state, kind, side, spot);
@@ -749,6 +751,7 @@ impl Simulation {
             p.urgency = mv.urgency;
             p.pace_s = positioning::pace_time(p, &self.cfg.ai, mv.pace_s);
             p.pace_speed = if mv.pace_s > 0.0 { self.cfg.ai.pace_run_speed } else { f32::MAX };
+            p.pace_min = self.cfg.ai.pace_min_speed;
             p.brake = mv.brake;
             p.target_vel = mv.target_vel;
             p.look_at = mv.look_at;
@@ -1107,6 +1110,9 @@ impl Simulation {
             ts.shots += 1;
             ts.xg += xg;
             self.pending_pass = None;
+            if restart.is_none() {
+                self.stats.regain_shot(side, now);
+            }
             self.push(EventKind::Shot { by: c, xg, first_time, weak_foot: inp.weak_foot });
         } else {
             ts.passes += 1;
@@ -1504,6 +1510,7 @@ impl Simulation {
             self.state.possession = side;
             self.state.possession_since = now;
             self.stats.passes_in_possession[side.index()] = 0;
+            self.stats.regain[side.index()] = Some((now, HALF_LENGTH - self.state.ball_in(side).x));
         }
         self.clear_flight();
         self.played(id);
@@ -1763,6 +1770,7 @@ impl Simulation {
             let xg = 0.08 + 0.12 * skill;
             self.stats.teams[side.index()].shots += 1;
             self.stats.teams[side.index()].xg += xg;
+            self.stats.regain_shot(side, now);
             self.state.flight = Some(BallFlight {
                 kicker: id,
                 receiver: None,

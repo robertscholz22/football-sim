@@ -32,8 +32,8 @@ fn desired_velocity_at(p: &Player, pos: Vec2, target: Vec2) -> Vec2 {
     }
     let mut speed = max;
     if paced {
-        // Pacing (M6): he closes the gap in his pace time, not at the speed's limit.
-        speed = speed.min(d / p.pace_s);
+        // Pacing (M6): he closes the gap in his pace time, not at the speed's limit, but at least at the pace floor.
+        speed = speed.min((d / p.pace_s).max(p.pace_min));
     }
     if p.brake {
         // Closing speed from which we can still stop at the target (relative to its motion).

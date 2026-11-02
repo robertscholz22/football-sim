@@ -514,6 +514,12 @@ pub struct TacticsConfig {
     pub bu01_gk_support_depth: f32,
     pub tr01_forward_bonus: f32,
     pub tr01_backward_penalty: f32,
+    /// TR-01 "intense forward runs" [UEFA-TO]: on the counter, a player going to a point ahead of the ball and of
+    /// himself runs at least at this urgency (× 0.8 + 0.2 × work rate, as positional play) ...
+    pub tr01_run_urgency: f32,
+    /// ... while more than this short of the last line (m); the approach to the line keeps the timing of a run in
+    /// behind (ATT-24).
+    pub tr01_line_margin: f32,
     pub tr04_numbers_margin: i32,
     pub tr05_min_players: usize,
     pub tr05_max_players: usize,
@@ -720,6 +726,8 @@ impl Default for TacticsConfig {
             bu01_gk_support_depth: 8.0,
             tr01_forward_bonus: 0.25,
             tr01_backward_penalty: 0.25,
+            tr01_run_urgency: 1.0,
+            tr01_line_margin: 5.0,
             tr04_numbers_margin: 1,
             tr05_min_players: 4,
             tr05_max_players: 5,
@@ -830,6 +838,9 @@ pub struct AiConfig {
     /// Layer 3: σ of the noise on a movement's value, as a share of the local value scale, for a player of reliability
     /// 0 (none at 1).
     pub movement_noise: f32,
+    /// Layer 3: in possession, that misjudgement drifts over this time (s) (`positioning::choose_move`) instead of
+    /// being drawn afresh at every trigger; 0: drawn at every trigger.
+    pub movement_noise_period_s: f32,
     /// `P_play` of a ball in behind (a run's offer) when the carrier is closed (pressed, or facing his own goal): he
     /// can hardly play it [FA-FWD].
     pub offer_closed_play: f32,
@@ -1024,6 +1035,9 @@ pub struct AiConfig {
     /// Pacing: the top speed (m/s) of a paced movement, a run below the high-intensity threshold
     /// (`PlayerConfig::fatigue_hi_speed`). Calibrated as the pace times.
     pub pace_run_speed: f32,
+    /// Pacing: a paced movement goes at least this fast (m/s) until he brakes at its point, so it arrives in about its
+    /// pace time instead of creeping up on it (gap / pace time alone never closes).
+    pub pace_min_speed: f32,
     /// Positional play: minimum urgency (walking pace).
     pub position_min_urgency: f32,
 }
@@ -1047,6 +1061,7 @@ impl Default for AiConfig {
             role_prior_weight: 0.05,
             movement_instruction_weight: 1.0,
             movement_noise: 0.1,
+            movement_noise_period_s: 6.0,
             offer_closed_play: 0.15,
             team_tick_s: 0.2,
             offball_interval_min: 0.25,
@@ -1140,6 +1155,7 @@ impl Default for AiConfig {
             pace_fatigue: 2.5,
             pace_work_rate: 0.6,
             pace_run_speed: 5.0,
+            pace_min_speed: 1.4,
             position_min_urgency: 0.08,
         }
     }

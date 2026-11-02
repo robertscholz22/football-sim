@@ -349,6 +349,16 @@ fn main() {
         cal.counter_duration(),
         cal.counter_distance()
     );
+    let fast = |k: usize| 100.0 * cal.regain_shots_fast[k] as f32 / cal.regain_shots[k].max(1) as f32;
+    println!(
+        "regain → shot ≤ 12 s   own third {:.0}%, middle {:.0}%, final {:.0}% of {:.1} / {:.1} / {:.1} shots per match   [13 / 37 / 71 %; 5.2 / 4.1 / 0.8 × 1.62]",
+        fast(2),
+        fast(1),
+        fast(0),
+        cal.regain_shots[2] as f32 / n,
+        cal.regain_shots[1] as f32 / n,
+        cal.regain_shots[0] as f32 / n
+    );
     println!("longest ball standstill {:.1} s in live play   [stuck-state guard: < 30 s]", cal.longest_still_s);
     // Fatigue (M6): per outfield player who started and is still on, per player-minute (the last period of each half
     // includes its added time); second half vs first [FIFA-WC22-RUN], high-intensity running in the last vs the first
@@ -491,8 +501,9 @@ fn scorecard(cal: &Calibration, both: &TeamStats, n: f32, scale: f32) {
         Row::new("counter-press (s)", cal.counter_press_duration(), 0.0, 5.5, "BDFL-KRUE; UEFA-PI"),
         Row::new("one-touch goals (%)", pct(cal.goals_one_touch, cal.goals), 63.0, 80.0, "FIFA-TSG; UEFA-TO"),
         Row::mean("goals, 1-5 passes (%)", pct(cal.goals_short_moves, cal.goals), 53.0, "UEFA-TO"),
-        Row::new("counter-attack (s)", cal.counter_duration(), 9.0, 11.0, "UEFA-PI"),
-        Row::mean("counter-attack (m)", cal.counter_distance(), 70.0, "UEFA-PI"),
+        Row::mean("regain→shot ≤12 s, own 3rd (%)", pct(cal.regain_shots_fast[2], cal.regain_shots[2]), 13.0, "StatsBomb"),
+        Row::mean("regain→shot ≤12 s, mid 3rd (%)", pct(cal.regain_shots_fast[1], cal.regain_shots[1]), 37.0, "StatsBomb"),
+        Row::mean("regain→shot ≤12 s, final 3rd (%)", pct(cal.regain_shots_fast[0], cal.regain_shots[0]), 71.0, "StatsBomb"),
         Row::new("scans/s before receiving", cal.scans_before_receiving as f32 / (10.0 * cal.receptions.max(1) as f32), 0.14, 0.74, "JORDET20"),
         Row::mean("running, 2nd half (%)", change(&cal.run_m, 3..6, 0..3), -7.0, "FIFA-WC22-RUN"),
         Row::new("HI, last vs first 15 (%)", change(&cal.hi_m, 5..6, 0..1), -45.0, -20.0, "BRADLEY09; MOHR03"),

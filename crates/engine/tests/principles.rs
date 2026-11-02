@@ -860,9 +860,10 @@ fn att26_forward_runs_and_come_short_instructions_change_the_choice() {
 }
 
 #[test]
-#[ignore = "set S (watch round, finding C26): with the fitted value curve the first striker checks by himself before the \
-            test sets it, so the baseline already has his check, and the second one's run in behind (marginal 0.0038) \
-            costs its effort (0.0022), so he comes short 50 %; the movement layer is recalibrated in set S"]
+#[ignore = "open (watch round, findings C26, S12): the first striker's check, 12 m across, is a separate option for \
+            the carrier, so the second one's check adds 0.0019 with or without it; his run in behind nets 0.0016 after \
+            its effort (0.0022) against 0.0018 for the check: holding the depth for a team-mate who comes short \
+            (DFB-RP16) has no value beyond the offers' overlap"]
 fn att26_when_one_striker_comes_short_the_other_holds_the_depth() {
     // Away 4-4-2 on the ball: two strikers [DFB-RP16: "Wenn ein Stürmer sich anbietet, sichert der andere die Tiefe"];
     // section 8.3: a second offer to feet adds little once a team-mate shows.
@@ -878,13 +879,18 @@ fn att26_when_one_striker_comes_short_the_other_holds_the_depth() {
     let st2: Vec<PlayerId> = (AWAY..2 * PLAYERS_PER_TEAM).filter(|&i| sc.sim.state.players[i].role == Role::ST2).collect();
     let (a, b) = (st2[0], st2[1]);
     let short = [Movement::Check, Movement::Drop];
+    let (sa, _) = scores(&sc, a);
+    let hold = |sc: &mut Scenario, kinds: &[Movement]| {
+        let m = sa.iter().filter(|x| kinds.contains(&x.kind)).max_by(|x, y| x.own.total_cmp(&y.own)).expect("a movement");
+        let d = movement::Decided { kind: m.kind, chose: true, offer: Some(fr.to_world(m.point)), projected: false, noise: 0, concept: None };
+        let plan = movement::plan_after(&sc.sim.state, &sc.sim.cfg, &sc.sim.state.players[a], d);
+        sc.sim.state.players[a].plan = plan;
+    };
+    // Alone: `a` pins the line (he may have checked by himself while the scene settled).
+    hold(&mut sc, &[Movement::Pin]);
     let alone = best_of(&scores(&sc, b).0, &short, |x| x.marginal);
     // `a` checks to feet (his best check or drop) and holds that movement.
-    let (sa, _) = scores(&sc, a);
-    let chk = sa.iter().filter(|x| short.contains(&x.kind)).max_by(|x, y| x.own.total_cmp(&y.own)).expect("a check");
-    let d = movement::Decided { kind: chk.kind, chose: true, offer: Some(fr.to_world(chk.point)), projected: false, noise: 0, concept: None };
-    let plan = movement::plan_after(&sc.sim.state, &sc.sim.cfg, &sc.sim.state.players[a], d);
-    sc.sim.state.players[a].plan = plan;
+    hold(&mut sc, &short);
     let beside = best_of(&scores(&sc, b).0, &short, |x| x.marginal);
     let [_, b_short, _] = front_shares(&sc, b, 40);
     assert!(beside < alone, "second striker's check / drop adds {beside:.4} with a team-mate showing, {alone:.4} alone");

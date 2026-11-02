@@ -2785,6 +2785,66 @@ Still open:
 Next set (S): in-possession positions and runs. That covers the positional lag, run churn, final-third occupation,
 the movement layer's scale and the counters. Duels on the carry come after it (tackles ≈ 3× real).
 
+## Set S: in-possession positions and runs (2026-11-02)
+
+Diagnosis (films of 4 seeds, ablations one mechanism at a time; S/watch/findings.md, "Set S inventory"):
+- Pacing never arrived: speed = gap / `pace_position_s`, re-evaluated every tick, decays exponentially, so a 2.4 m gap
+  closed at 0.6 m/s. A front player stood 8.4 m short of the last line while his point was 4.8 m short; strikers
+  were on the line in 10–15 % of the samples, their points in 34–60 %.
+- The movement layer's misjudgement was drawn afresh at every trigger (new carrier, pass struck, carrier turning
+  open or closed): 27 re-choices per player-minute in possession, and the noise decided as much as the values did.
+  Without it the label changed 15 instead of 25 times a minute and pinning the line won five times less often.
+- Most of the lag is the transition: a striker is 13 m behind his point in the first 3 s after a regain, 9 m at
+  3–8 s and 5 m after 15 s (a winger 19 / 14 / 9 m), as the positional moves jog up at the pace law.
+- Neither noise nor pacing changes the settled gap much (strikers ≈ 6 m, wingers ≈ 11 m short); a winger's point is
+  itself 5 m short of the line by design.
+
+Changes:
+- `pace_min_speed` 1.4 m/s: a paced movement walks at least until it brakes at its point (`locomotion`, and the
+  carrier's prediction of a team-mate's offer in `on_ball::ahead`).
+- `movement_noise_period_s` 6 s: in possession the misjudgement drifts (successive draws blended with a per-player
+  phase, unit variance) instead of being redrawn at every trigger (`positioning::choose_move`).
+- TR-01 "intense forward runs": on the counter a player going to a point ahead of the ball and of himself runs at
+  `tr01_run_urgency` (1.0) × (0.8 + 0.2 × work rate), unpaced, until `tr01_line_margin` (5 m) short of the last line.
+  Without the margin offsides rose from 3.1 to 3.7 per team.
+- Tried and dropped: feeding the point's velocity forward (× look-ahead): lag 3.5 m against 3.6.
+- Lab: the counter-attack rows compared the TR-04 phase (every counter) with UEFA's single counter goals (70 m in
+  9–11 s). They are replaced by a like-for-like row from StatsBomb (609 matches): of the open-play shots of
+  possessions begun by a regain, the share within 12 s by the regain's third (`Calibration::regain_shots`).
+- The ATT-26 two-striker test's baseline is fixed: the first striker now pins the line for the "alone" case (he had
+  checked by himself while the scene settled). It still fails for a reason of its own: his check, 12 m across, is a
+  separate option for the carrier, so the second striker's check adds 0.0019 either way. Holding the depth for a
+  team-mate who comes short has no value beyond the offers' overlap (open, finding S12).
+
+| 40 matches; films 4 seeds | set C | set S | real |
+|---|---|---|---|
+| goals; shots per team | 2.88; 19.5 / 13.2 | 3.03; 19.1 / 18.5 | sanity ≥ 2.47 |
+| strikers on the last line, position (their point) | 15 % (60 %) | 21 % (60 %) | – |
+| in-possession re-choices per player-minute | 26.8 | 20.1 | – |
+| runs in behind started per striker-match | 110 | 94 | ≈ 26.5 |
+| regain → shot within 12 s: own / middle / final third | 1 / 23 / 88 % (dump) | 4 / 32 / 94 % | 13 / 37 / 71 % |
+| shots after own-third regains per match (× 1/1.62) | 3.1 | 4.3 (sA5 dump) | 5.2 |
+| attacks covering ≥ 50 m to a shot per match (× 1/1.62) | 3.6 | 5.6 (sA5 dump) | 5.9 |
+| goals from 1–5 passes; one-touch goals | 25 %; 13 % | 35 %; 24 % | ≈ 53 %; 63–80 % |
+| offsides per team | 2.80 | 2.88 | 2.21–2.70 |
+| running per player-90 in play: km in / out; HI in / out | 5.78 / 7.90; 0.68 / 1.59 | 6.34 / 8.40; 0.82 / 1.69 | 13–13.6 km in all |
+| scorecard (situation-conditional) | 8 / 32 | 9 / 33 | – |
+
+Still open:
+- Running: 14.4 km per player-90 in play (13–13.6). The excess is out of possession, where duties churn
+  (block ↔ mark ↔ cover, 28 switches per player-minute; 43 % of the high-intensity bursts start within 0.6 s of
+  one). The pace floor adds to it, since the defenders' moves now arrive too.
+- Turnovers: about 230–245 changes of control per match in the films against 111 real (68.8 × 1.62), most of the
+  excess in midfield (30–75 m from the goal attacked: 151 against 55). That is why 94 % of the shots after
+  final-third regains come at once, and why there are 7.2 of them per match against 1.3. It is also why own-third
+  regains rarely become fast attacks. Interceptions (≈ 69 per team) and tackles (≈ 71) are 3–4× real.
+- Wingers stay 11 m short of the line and the widths stay at 48 / 49 m (54–55).
+- The final third holds 4.8 % of the passes (22 %).
+
+Next set (D): out-of-possession duties and duels. That covers the duty churn and its running, the engagements and
+tackles on the carry, and interceptions as far as positions cause them (lanes). Turnovers are measured by zone
+against StatsBomb's regains.
+
 ## Open after the plan
 
 All milestones of the plan (M0–M8) are done. Statuses per principle are in the catalog; the open items are listed in

@@ -194,6 +194,7 @@ The BDFL is the German professional football coaches' association; its congress 
 
 ## Verification log
 
+- 2026-11-02 (watch round, set S): no new coaching source and no re-read. TR-01's UEFA-PI quotes, as verified before, describe single counter goals (Leverkusen 9 s / 70 m, Bodø/Glimt 11 s / 74 m), so they are no longer scored against the engine's TR-04 counter phase. StatsBomb open data, 609 matches (own extraction with `sb_leadup_extract.py`, not a published figure): open-play shots of possessions begun by a regain (Regular Play, From Counter or From Keeper; first own event a recovery, duel, interception, pass or keeper action), 13 / 37 / 71 % of them within 12 s of a regain in the own / middle / final third; 166 matches (`sb_regain_extract.py`): 68.8 regains per match by distance from the goal attacked.
 - 2026-11-02 (watch round, set C): no new coaching source. ATT-02's turnover cost and ATT-17's worth of the last line are now measured on StatsBomb open data, 166 matches (own extraction, not published figures):
   - the xG of the possession an open-play regain starts, by where it happens (11,022 regains; `sb_regain_extract.py`, `fit_regain.py`);
   - the xG still to come after an open-play receipt in the 360 freeze frames, by the number of visible outfield opponents goal-side of the receiver (`sb_receipt_xg_extract.py`, `sb_behind_fit.py`).

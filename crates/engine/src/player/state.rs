@@ -133,6 +133,8 @@ pub struct Player {
     /// `pace_speed` (m/s); 0 = as fast as `urgency` allows.
     pub pace_s: f32,
     pub pace_speed: f32,
+    /// Pacing: the floor of a paced movement's speed (m/s, `AiConfig::pace_min_speed`).
+    pub pace_min: f32,
     /// Brake to arrive at the target (false = run through it).
     pub brake: bool,
     /// Velocity of a moving target (pursuit, e.g. a contain point goal-side of a running carrier): the target moves
@@ -220,6 +222,7 @@ impl Player {
             urgency: 0.5,
             pace_s: 0.0,
             pace_speed: f32::MAX,
+            pace_min: 0.0,
             brake: true,
             target_vel: Vec2::ZERO,
             look_at: Vec2::ZERO,

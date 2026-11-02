@@ -308,6 +308,17 @@ pub fn decide(state: &MatchState, cfg: &SimConfig, id: PlayerId, rng: &mut SimRn
     if matches!(b.phase, TeamPhase::In(InPhase::CounterAttack) | TeamPhase::Out(OutPhase::CounterPress | OutPhase::Recovery)) && !shape {
         mv.pace_s = 0.0;
     }
+    // TR-01: "intense forward runs" on the counter, by the players going ahead of the ball, through the space up to
+    // the last line; the approach to the line itself keeps the timing of a run in behind (ATT-24).
+    let (to, at) = (fr.to_team(mv.target), fr.to_team(p.pos));
+    if b.phase == TeamPhase::In(InPhase::CounterAttack)
+        && mv.intent == Intent::Position
+        && to.x > b.ball_ref.x
+        && to.x > at.x + 2.0
+        && at.x < b.offside_line - cfg.tactics.tr01_line_margin
+    {
+        mv.urgency = mv.urgency.max(cfg.tactics.tr01_run_urgency * (0.8 + 0.2 * norm(p.attrs.work_rate)));
+    }
     mv.target = clamp_to_pitch(mv.target, 0.3);
     mv
 }
@@ -718,10 +729,10 @@ fn possession_movement(state: &MatchState, cfg: &SimConfig, id: PlayerId, anchor
     let mut choice = None;
     if let Some(ps) = ps.filter(|_| rechoose) {
         let scores = score_moves(state, cfg, p, &ps, &sp);
-        if held.is_none() || movement::cue(state, cfg, p) != p.plan.cue {
+        if held.is_none() || (ai.movement_noise_period_s <= 0.0 && movement::cue(state, cfg, p) != p.plan.cue) {
             mv.noise = rng.next_seed();
         }
-        choice = (!scores.is_empty()).then(|| choose_move(cfg, p, held, look, &scores, mv.noise));
+        choice = (!scores.is_empty()).then(|| choose_move(cfg, p, held, look, &scores, mv.noise, state.time));
         mv.concept = choice.and_then(|c| c.2).map(|(k, q)| (k, fr.to_world(q)));
         mv.chose = true;
         mv.projected = ps.from_t > 0.0;
@@ -1221,15 +1232,27 @@ fn choose_move(
     look: f32,
     scores: &[MoveScore],
     noise: u64,
+    now: f32,
 ) -> (Movement, Vec2, Option<(Movement, Vec2)>) {
     let ai = &cfg.ai;
     let mut best = (f32::MIN, Movement::Hold, Vec2::ZERO);
     let mut concept = (f32::MIN, Movement::Hold, Vec2::ZERO);
+    let sigma = ai.movement_noise * (1.0 - reliability(p, ai));
     for s in scores {
         let same = scores.iter().find(|q| (q.point - s.point).length() < SAME_PLACE_M).map_or(s.kind, |q| q.kind);
-        let mut rng = SimRng::new(noise ^ (same as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let draw = |k: u64| SimRng::new(noise ^ k ^ (same as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15)).normal();
+        // Drifting: draws for successive periods, blended linearly and rescaled to unit variance; each player's
+        // periods start at his own phase.
+        let e = if ai.movement_noise_period_s > 0.0 {
+            let u = now / ai.movement_noise_period_s + (noise >> 40) as f32 / (1u64 << 24) as f32;
+            let (k, w) = (u.floor(), u.fract());
+            let k = (k as i64 as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            (draw(k) * (1.0 - w) + draw(k.wrapping_add(0xbf58_476d_1ce4_e5b9)) * w) / ((1.0 - w).powi(2) + w * w).sqrt()
+        } else {
+            draw(0)
+        };
         let margin = if held == Some(s.kind) { s.scale * ai.movement_switch_margin } else { 0.0 };
-        let u = s.value(look) + rng.gauss(0.0, s.scale * ai.movement_noise * (1.0 - reliability(p, ai))) + margin;
+        let u = s.value(look) + e * s.scale * sigma + margin;
         if u > best.0 {
             best = (u, s.kind, s.point);
         }

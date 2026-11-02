@@ -180,6 +180,11 @@ pub struct Calibration {
     pub counters: u32,
     pub counter_duration_sum: f32,
     pub counter_distance_sum: f32,
+    /// Open-play shots of possessions begun by a regain, by the third of the regain (final, middle, own: under 35,
+    /// 35–70, over 70 m from the goal attacked), and those of them within `REGAIN_FAST_S` of the regain: StatsBomb's
+    /// 13 % / 37 % / 71 % from the own / middle / final third set how fast the attack follows a regain.
+    pub regain_shots: [u32; 3],
+    pub regain_shots_fast: [u32; 3],
     /// Longest spell of live play (s) with the ball within 1 m of one spot: a guard against stuck states (a carrier
     /// held the ball behind his goal line for 35 minutes, a ball rested on the crossbar for 15).
     pub longest_still_s: f32,
@@ -245,6 +250,10 @@ impl Calibration {
         self.counters += o.counters;
         self.counter_duration_sum += o.counter_duration_sum;
         self.counter_distance_sum += o.counter_distance_sum;
+        for i in 0..3 {
+            self.regain_shots[i] += o.regain_shots[i];
+            self.regain_shots_fast[i] += o.regain_shots_fast[i];
+        }
         self.longest_still_s = self.longest_still_s.max(o.longest_still_s);
         for i in 0..6 {
             self.run_m[i] += o.run_m[i];
@@ -347,6 +356,9 @@ pub struct Stats {
     pub cal: Calibration,
     /// Passes by the team in possession since it gained the ball.
     pub passes_in_possession: [u32; 2],
+    /// When and how far from the goal attacked (m) each side's current possession began with a regain in open play;
+    /// `None` after a restart.
+    pub regain: [Option<(f32, f32)>; 2],
     stationary: [VecDeque<bool>; 2],
     counter_press_start: [Option<f32>; 2],
     counter_start: [Option<(f32, f32)>; 2],
@@ -355,6 +367,9 @@ pub struct Stats {
     /// Cells (`VALUE_CELL_M`) the ball has been in under each side's control in its current possession.
     value_seen: [Vec<usize>; 2],
 }
+
+/// A shot this soon (s) after the regain that began the possession counts as a fast attack (`regain_shots_fast`).
+pub const REGAIN_FAST_S: f32 = 12.0;
 
 /// The window (s) after a goal in which the confidence statistics count.
 pub const AFTER_GOAL_S: f32 = 600.0;
@@ -379,6 +394,15 @@ impl Stats {
             if v > cfg.player.fatigue_hi_speed {
                 self.cal.hi_m[k] += v * dt;
             }
+        }
+    }
+
+    /// An open-play shot by `side`: count it by the regain that began the possession, if one did.
+    pub fn regain_shot(&mut self, side: Side, now: f32) {
+        if let Some((t0, d)) = self.regain[side.index()] {
+            let k = if d < 35.0 { 0 } else if d < 70.0 { 1 } else { 2 };
+            self.cal.regain_shots[k] += 1;
+            self.cal.regain_shots_fast[k] += u32::from(now - t0 <= REGAIN_FAST_S);
         }
     }
 

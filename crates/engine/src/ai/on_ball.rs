@@ -321,10 +321,11 @@ fn ahead(ctx: &Ctx, proj: &mut MatchState, t: f32, here: f32) -> f32 {
         }
         let offer = if q.side == me.side { super::reading::seen(state, ai, me.id, q).1 } else { None };
         let to = match offer {
-            // At the pace of a positional move (`pace_position_s`, `pace_run_speed`), or faster if he already is.
+            // At the pace of a positional move (`pace_position_s`, `pace_min_speed`, `pace_run_speed`), or faster if he
+            // already is.
             Some(o) => {
                 let to = o - q.pos;
-                let speed = q.vel.length().max((to.length() / ai.pace_position_s).min(ai.pace_run_speed));
+                let speed = q.vel.length().max((to.length() / ai.pace_position_s).max(ai.pace_min_speed).min(ai.pace_run_speed));
                 to.clamp_length_max(speed * t)
             }
             None => {
