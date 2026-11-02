@@ -308,6 +308,12 @@ pub fn decide(state: &MatchState, cfg: &SimConfig, id: PlayerId, rng: &mut SimRn
     if matches!(b.phase, TeamPhase::In(InPhase::CounterAttack) | TeamPhase::Out(OutPhase::CounterPress | OutPhase::Recovery)) && !shape {
         mv.pace_s = 0.0;
     }
+    // ATT-11 in the attacking transition (PH-01), the mirror of TRN-03: "Quickly make playing area as big as possible –
+    // width and depth"; "When regaining possession: … players away from ball make the field big" [USS-D §6.3]. Paced,
+    // the wide players were still 8–14 m behind and 3–7 m inside their points 3 s after a regain (set W).
+    if b.in_possession && state.time - state.possession_since < cfg.tactics.ph01_attacking_transition_s {
+        mv.pace_s = 0.0;
+    }
     // TR-01: "intense forward runs" on the counter, by the players going ahead of the ball, through the space up to
     // the last line; the approach to the line itself keeps the timing of a run in behind (ATT-24).
     let (to, at) = (fr.to_team(mv.target), fr.to_team(p.pos));

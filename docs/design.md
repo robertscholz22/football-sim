@@ -2898,6 +2898,70 @@ Still open:
 
 Next set: width and the final third (W) with first contacts (A).
 
+## Set W+A: transitions, following the block, first contacts (2026-11-02)
+
+Inventory first (S/watch/findings.md, "Set W+A inventory"), grouped by cause: (W) the in-possession shape is
+narrow and deep and few team-mates are wide ahead of the ball, (A) an opponent's first touch on a pass is always a
+clean control, (K) found on the way: the keeper ignored balls going in that were not kicked (deflections).
+
+A first attempt at (A) added an "unset contact" difficulty for interceptions and a deflection restitution, and set
+both by sweeping them until the pooled share of failed first contacts and the pooled split of where the ball went
+next matched StatsBomb. That is the aggregate calibration ruled out under "Style invariance of the targets": a split
+pooled over all situations is still a mix of situations. Both were replaced. Rule since: every mechanism has a
+physical explanation (geometry, kinematics, contact physics, skill) and named sources of randomness; its parameters
+come from physics or literature, or from a stated physical fact; the same physics applies to every player in the same
+geometry (no interceptor-vs-receiver flags); outcomes are checked only conditionally, and pooled splits only for
+plausibility.
+
+| change | physical explanation | randomness |
+|---|---|---|
+| W-T: no pacing in the attacking transition (`ph01_attacking_transition_s`) | the urgency the movement asks for, mirror of TRN-03 [USS-D §6.3] | the movement chosen |
+| following the block (`pace_follow_smooth_s` 0.5 s) | following a moving point: the lag of a paced movement grew with the anchor's speed (wide players 4–7 m behind it at 1.5–3 m/s; the middle-third anchor moves at 1.2 m/s on average, film). A paced movement adds the speed at which its point moves away from him (the anchor's smoothed velocity towards the point), never faster than he can stop at the point; the point itself is where he sees it, not extrapolated (an extrapolated point he ran past whenever the ball stopped or turned: reversals at speed +45 %, off-ball speed +0.47 m/s) | – |
+| C1 stretch (`first_touch_stretch_weight` 1.4, `stance_half_width` 0.17 m) | the further the ball's path passes from him (relative to his motion), the less of the foot meets it and the less it stays aligned [ANDERSEN08]; no reach within a foot under the hip (half the hip breadth), and less the sideways step he still makes before the ball passes (his lateral acceleration from rest); set from "at full reach a player at the pivot skill cushions a 12 m/s ground pass 1 time in 10" | the contact draw |
+| C2 strike contact (`Situation::strike_p`) | a first-time kick of a moving ball needs a clean contact but does not absorb its pace: the control logistic without the speed² term; the timing error on a fast ball is in the kick's execution error | the same draw |
+| A2 a player meeting the opponents' pass decides as it comes | decision timing: a receiver decided at the release, an interceptor only at the contact; the options are priced with `control_p` / `strike_p` | the softmax |
+| C3 glance (`deflect_restitution` 0.48–0.67) | a failed contact off the centre of a rounded foot or shin: a foot reaching out meets the ball with its far half, so the contact normal tilts away from him at asin(u) to the ball's path (impact parameter uniform), foot–ball restitution [ANDERSEN08]; the share `stretch` of the failures, otherwise the foot met it square and did not cushion it (the heavy touch); leg blocks of kicks glance the same way | u, e |
+| C4 keeper | he reacts to any ball heading into his goal at ≥ 12 m/s (before: only while a kick was in flight, so a deflected ball heading in was never dived at), his reaction counted from the ball's last change of course (kick, touch, deflection, woodwork), also in the save | – |
+
+Removed: `intercept_difficulty` (the unset-contact term on an interception flag), `deflect_min_speed` (a failed
+touch on an opponents' ball above 10 m/s was a deflection: a team flag where the geometry decides).
+
+Results (lab 40 matches; benches: receptions and turnovers 6 matches, goals 16–32, movement 3 seeds × 3 matches;
+real counts × 1.62, see "Per-game counts"). W7 had the extrapolated feed-forward and A1/A2 without the contact
+physics; C5 is this set as committed.
+
+| | D3 (set D) | W7 | C5 | real |
+|---|---|---|---|---|
+| goals / xG per match (goals ÷ xG) | 2.83 / 2.65 (1.07) | 4.50 / 4.06 (1.11) | 3.38 / 3.17 (1.07) | plausibility |
+| shots per team | 16.3 | 23.5 | 18.4 | 13–32.5 |
+| build-up / progression width (m) | 48.2 / 48.9 | 49.9 / 49.4 | 50.2 / 50.0 | 53.5–54.5 / 55–55.5 |
+| progression / final-third line (m) | 35.4 / 47.2 | 36.6 / 50.9 | 36.4 / 49.3 | 40–40.6 / 52.6–53.7 |
+| low block width × line (m) | 28.9 × 14.7 | 26.0 × 11.8 | 27.3 × 13.3 | 35.5–36 × 17.6–18.1 |
+| throw-ins / corners / goal kicks per team | 10.7 / 1.8 / 7.0 | 18.9 / 4.5 / 10.2 | 19.4 / 3.6 / 8.7 | 23–28 / 7.3–8.9 / 11–13.6 |
+| open-play regains per match (turnovers) | 215 | 206 | 236 | ≈ 105 |
+| losses per s of controlled receptions by nearest opponent 0–1.5 / 1.5–3 / 3–5 / 5–8 / 8+ m | 0.217 / 0.110 / 0.076 / 0.034 / 0.010 | 0.239 / 0.124 / 0.070 / 0.029 / 0.006 | 0.240 / 0.156 / 0.101 / 0.043 / 0.009 | 0.28 / 0.14 / 0.056 / 0.016 / 0.003 |
+| one-touch goals | 21 % | 20 % | 29 % | 63–80 % |
+
+Opponents' first foot contacts on passes (contacts bench, C4): clean 96–100 % with the ball's path within half the
+reach, 81–96 % at 0.5–0.75, 43–52 % at full stretch; outcome mix controlled 18 % / first time 40 % / headers 15 % /
+blocks 20 % / heavy touch or glance 6 % (plausibility only). Intended receivers: 92–99 % clean within half the reach,
+37–57 % at full stretch, 3.7 % of their contacts there. Off-ball movement (C5 against the same build without and
+with the extrapolated feed-forward): 3.05 m/s (2.83 / 3.30), turning 57°/s (54 / 69), reversals at speed 1.59 per
+player-minute (1.35 / 1.95), walking 34 % (45 / 25).
+
+Open after this set (S/watch/findings.md, "Set C runs"):
+- Own goals ≈ 0.28 per match by the usual definition (after a failed contact or a miscued first-time pass; 9 in 32
+  matches) against ≈ 0.16: 3 of the 7 after a failed contact rolled in from 24–27 m at under 12 m/s and nobody
+  stopped them (GK-01 dives only from 12 m/s, and the loose-ball chase did not get the keeper there first): keeper
+  and slow balls heading in, set K.
+- Losses of receptions in space 1.5–3× real and up since D (5–8 m 0.034 → 0.043): receivers who still meet the ball
+  at a stretch (arrival geometry) and defenders closing fast (D20).
+- Clearances 0.3 per team (real 18.1 raw): an interceptor's first-time pass prices no execution error
+  (`evaluate_pass`), so it looks safer than a clearance; valuation group (V).
+- `pass_touch_prob` (an opponent's chance to touch a pass within reach) ignores the reach: to unify with C1.
+- The low block is narrower and deeper than at D; the in-possession shape gained 1–2 m width and line but is still
+  5 m narrow and 3–4 m deep; wide players' targets narrower and deeper than their anchors (later groups).
+
 ## Open after the plan
 
 All milestones of the plan (M0–M8) are done. Statuses per principle are in the catalog; the open items are listed in

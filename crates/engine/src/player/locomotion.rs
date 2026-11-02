@@ -33,7 +33,15 @@ fn desired_velocity_at(p: &Player, pos: Vec2, target: Vec2) -> Vec2 {
     let mut speed = max;
     if paced {
         // Pacing (M6): he closes the gap in his pace time, not at the speed's limit, but at least at the pace floor.
-        speed = speed.min((d / p.pace_s).max(p.pace_min));
+        // Set W+A: plus the speed at which his point moves away from him as the block moves (`pace_follow`), never
+        // faster than he can still stop at it. He keeps up with the point he sees and does not run on past it when it
+        // stops (following an extrapolated point ran past it whenever the ball stopped or turned: reversals at speed
+        // +45 %).
+        let follow = p.pace_follow.dot(to / d).max(0.0);
+        speed = speed.min((d / p.pace_s + follow).max(p.pace_min));
+        if follow > 0.0 {
+            speed = speed.min((2.0 * p.kin.decel * 0.8 * d).sqrt());
+        }
     }
     if p.brake {
         // Closing speed from which we can still stop at the target (relative to its motion).

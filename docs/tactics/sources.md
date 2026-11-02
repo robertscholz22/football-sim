@@ -181,6 +181,14 @@ StatsBomb open data (40 matches, the same set as the earlier ×1.48 counts) give
 
 The BDFL is the German professional football coaches' association; its congress papers are given by DFB staff and licensed coaches, but are not DFB publications themselves (except where noted).
 
+## Ball and contact physics
+
+| Key | Title | URL | Access | Used for |
+|---|---|---|---|---|
+| ANDERSEN08 | Andersen, Kristensen & Sørensen, "Biomechanical differences between toe and instep kicking – influence of contact area on the coefficient of restitution", *Football Science* 5, 2008, 45–50 | https://www.shobix.co.jp/jssf/tempfiles/journal/2008/019.pdf | open (PDF) | contacts (set W+A, C1 / C3): foot–ball coefficient of restitution in kicking 0.48–0.67 (instep 0.48–0.55, toe 0.53–0.67, falling with foot speed 12–17 m/s; earlier measurements 0.50–0.65 cited from Reilly 1996 and Enoka 1994); a FIFA ball dropped from 2 m onto concrete ≈ 0.82; in toe kicks "it is not possible to keep the foot aligned" at higher impact speeds (the small contact area at a stretch) |
+
+No published figure was found for how a first touch's success falls with the reach to the ball; `first_touch_stretch_weight` is set from a physical statement (design.md, "Set W+A").
+
 ## Not accessible / gaps
 - FIFA 11-a-side Coaching Manual: not found online.
 - UEFA coaching-licence (A/B/Pro) course material: not public.
@@ -193,6 +201,8 @@ The BDFL is the German professional football coaches' association; its congress 
 - The FIFA Training Centre index pages listed for FIFA-ZD, FIFA-PR, FIFA-TD, FIFA-FL, FIFA-TCP and FIFA-ES return HTTP 403 to automated requests; the individual articles open normally and were used for verification.
 
 ## Verification log
+
+- 2026-11-02 (watch round, set W+A): ANDERSEN08 read in the PDF (pages 45–50): the COR values from Figures 3–4 and the discussion ("Previous measurements of the COR suggest that the COR is between 0.50 and 0.65 for human kicking motions (Reilly 1996; Enoka 1994)"; "the stiffness of the foot and ankle in the toe kicks were insufficient to keep the foot aligned during ball impact at higher velocity conditions"). Bull Andersen, Dörge & Thomsen 1999 ("Collisions in soccer kicking", *Sports Engineering* 2, 121–125) located through its records (bisp-surf, LIDA) but its COR figure was not readable there. USS-D §6.3 (as verified 2026-11-01) for the unpaced attacking transition (ATT-11, PH-01). StatsBomb open data, 40 matches (`sb_first_touch.py`, own extraction): the next ball after the first opponent touch on an incomplete pass, used as plausibility only. No source found for how a clean first touch falls off with the reach: `first_touch_stretch_weight` is set from a stated physical fact (design.md "Set W+A"), `stance_half_width` 0.17 m is half an adult's hip breadth (≈ 0.34 m), an estimate.
 
 - 2026-11-02 (watch round, set D): no new coaching source and no re-read. StatsBomb open data, 40 matches (own extraction, not a published figure; `sb_miscount.py`, `sb_contest.py`, `sb_incomplete.py`, `sb_clear.py`): per team and match raw, miscontrols 10.7, dispossessed 9.8, tackles 15.6, interceptions 7.9, take-ons 13.1 (51 % complete), clearances 18.1 (foot clearances 76 % within 16.5 m of the own goal line); after an incomplete pass the first opponent event is none 31 %, a block 18 %, a recovery 17 %, a clearance 15 %, an interception 11 %. StatsBomb 360 (as in "Pressed receptions") for the loss hazard of controlled receptions by the nearest opponent and the miscontrol share of the losses.
 - 2026-11-02 (watch round, set S): no new coaching source and no re-read. TR-01's UEFA-PI quotes, as verified before, describe single counter goals (Leverkusen 9 s / 70 m, Bodø/Glimt 11 s / 74 m), so they are no longer scored against the engine's TR-04 counter phase. StatsBomb open data, 609 matches (own extraction with `sb_leadup_extract.py`, not a published figure): open-play shots of possessions begun by a regain (Regular Play, From Counter or From Keeper; first own event a recovery, duel, interception, pass or keeper action), 13 / 37 / 71 % of them within 12 s of a regain in the own / middle / final third; 166 matches (`sb_regain_extract.py`): 68.8 regains per match by distance from the goal attacked.

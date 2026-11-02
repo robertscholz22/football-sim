@@ -36,10 +36,13 @@ fn main() {
         let mut sim = Simulation::from_builtin("northbridge", "harbour", seed);
         sim.cfg.timing.half_length_s = minutes * 30.0;
         sim.state.half_length = sim.cfg.timing.half_length_s;
-        // Experiments: DRIFT=<σ max>, NOISE=<score noise max>, COMMIT=<cost per metre>, LASTDITCH=<s>, TWORST=<temperature>.
+        // Experiments: DRIFT=<σ max>, FOLLOW=<pace follow smoothing s>, NOISE=<score noise max>, COMMIT=<cost per metre>, LASTDITCH=<s>, TWORST=<temperature>.
         let env = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<f32>().ok());
         if let Some(v) = env("DRIFT") {
             sim.cfg.ai.drift_sigma_max = v;
+        }
+        if let Some(v) = env("FOLLOW") {
+            sim.cfg.ai.pace_follow_smooth_s = v;
         }
         if let Some(v) = env("NOISE") {
             sim.cfg.ai.position_noise_max = v;

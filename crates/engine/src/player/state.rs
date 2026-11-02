@@ -140,6 +140,13 @@ pub struct Player {
     /// Velocity of a moving target (pursuit, e.g. a contain point goal-side of a running carrier): the target moves
     /// on with it between decisions, and the player arrives at it relative to this velocity.
     pub target_vel: Vec2,
+    /// Pacing (set W): his anchor at his last positioning decision (world), when, and its smoothed velocity; a paced
+    /// movement follows its point as the block moves (`pace_follow`: that velocity, zero for a movement with a moving
+    /// reference of its own).
+    pub anchor_ref: Vec2,
+    pub anchor_ref_t: f32,
+    pub anchor_vel: Vec2,
+    pub pace_follow: Vec2,
     /// Point the player looks at when not running.
     pub look_at: Vec2,
     pub next_decision: f32,
@@ -225,6 +232,10 @@ impl Player {
             pace_min: 0.0,
             brake: true,
             target_vel: Vec2::ZERO,
+            anchor_ref: Vec2::ZERO,
+            anchor_ref_t: f32::NEG_INFINITY,
+            anchor_vel: Vec2::ZERO,
+            pace_follow: Vec2::ZERO,
             look_at: Vec2::ZERO,
             next_decision: 0.0,
             drift: Vec2::ZERO,

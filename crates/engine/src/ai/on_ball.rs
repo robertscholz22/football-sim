@@ -92,6 +92,11 @@ pub struct Situation {
     /// Deciding before the ball arrives: time (s) until it reaches him and he plays it. The keeper keeps adjusting
     /// meanwhile, so a first-time shot is priced against where he will be, not where he stands now.
     pub arrives_in: f32,
+    /// Deciding first time as the ball comes (a pressed receiver at the release, A2 a player meeting the opponents'
+    /// pass): chance that trying to control it succeeds (C1) …
+    pub control_p: f32,
+    /// … and that a first-time kick meets it cleanly (C2).
+    pub strike_p: f32,
 }
 
 impl Situation {
@@ -110,6 +115,8 @@ impl Situation {
             corner: false,
             throw_in: false,
             arrives_in: 0.0,
+            control_p: 1.0,
+            strike_p: 1.0,
         }
     }
 }
@@ -301,6 +308,14 @@ pub fn evaluate(state: &MatchState, cfg: &SimConfig, plan: &BallParams, sit: Sit
                 best.rules.push("ATT-04");
             }
         }
+    }
+
+    // A2, C2: a first-time kick needs a clean contact first; otherwise the ball goes loose where he is ("control"
+    // has its own chance in its keep already).
+    for o in opts.iter_mut().filter(|o| matches!(o.action, Action::Kick(_))) {
+        let c = sit.strike_p;
+        o.p *= c;
+        o.u_opt = c * o.u_opt - (1.0 - c) * ctx.cost_at(ctx.from);
     }
 
     layer2_and_3(&ctx, &mut opts);
@@ -744,7 +759,8 @@ fn dribbles(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
 fn hold(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
     let (cfg, p) = (ctx.cfg, ctx.p);
     let shield = 0.7 * challenge_strength(p, &cfg.duel) + 0.3 * norm(p.attrs.dribbling);
-    let keep = (1.0 - ctx.pressure * cfg.ai.hold_loss * (1.0 - 0.6 * shield))
+    let keep = ctx.sit.control_p
+        * (1.0 - ctx.pressure * cfg.ai.hold_loss * (1.0 - 0.6 * shield))
         * (-pressed_loss_hazard(p, ctx.pressure, &cfg.duel) * cfg.ai.onball_interval).exp();
     // ATT-25: still pressed when the next decision comes.
     let opp_t = ctx
@@ -783,8 +799,10 @@ fn hold(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
 
 fn clearance(ctx: &Ctx, opts: &mut Vec<OptionEval>) {
     let (state, cfg, p, fr) = (ctx.state, ctx.cfg, ctx.p, ctx.fr);
+    // Deep in his own half under pressure, or meeting the ball first time there (A2: an interceptor, a pressed
+    // receiver): "if in doubt, kick it out" (ATT-02, risk by third).
     let deep = ctx.from.x < -HALF_LENGTH + PENALTY_AREA_DEPTH + 10.0;
-    if !(ctx.sit.gk_hands || (deep && ctx.pressure > 0.5)) {
+    if !(ctx.sit.gk_hands || (deep && (ctx.pressure > 0.5 || ctx.sit.first_time))) {
         return;
     }
     let side_y = if ctx.from.y >= 0.0 { 1.0 } else { -1.0 };

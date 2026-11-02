@@ -135,6 +135,9 @@ pub struct PlayerConfig {
     pub ball_turn_rate_max: f32,
     /// Horizontal distance within which a player can play the ball with the feet.
     pub control_radius: f32,
+    /// Set W+A (C1): a ball passing this close to his centre (m) meets a foot under the hip without a reach: half an
+    /// adult's hip breadth (≈ 0.34 m), a physical estimate. The stretch runs from here to `control_radius`.
+    pub stance_half_width: f32,
     /// Max ball height (bottom of ball) a player can control without heading (chest).
     pub control_height: f32,
     pub tackle_reach_min: f32,
@@ -245,6 +248,7 @@ impl Default for PlayerConfig {
             ball_turn_rate_min: 3.5,
             ball_turn_rate_max: 6.5,
             control_radius: 0.75,
+            stance_half_width: 0.17,
             control_height: 1.3,
             tackle_reach_min: 1.1,
             tackle_reach_max: 1.6,
@@ -1038,6 +1042,9 @@ pub struct AiConfig {
     /// Pacing: a paced movement goes at least this fast (m/s) until he brakes at its point, so it arrives in about its
     /// pace time instead of creeping up on it (gap / pace time alone never closes).
     pub pace_min_speed: f32,
+    /// Pacing (set W): a paced movement adds the speed at which its point moves away from him, from his anchor's
+    /// velocity smoothed over this time (s) between his positioning decisions (`locomotion::desired_velocity`).
+    pub pace_follow_smooth_s: f32,
     /// Positional play: minimum urgency (walking pace).
     pub position_min_urgency: f32,
 }
@@ -1156,6 +1163,7 @@ impl Default for AiConfig {
             pace_work_rate: 0.6,
             pace_run_speed: 5.0,
             pace_min_speed: 1.4,
+            pace_follow_smooth_s: 0.5,
             position_min_urgency: 0.08,
         }
     }
@@ -1328,13 +1336,19 @@ pub struct DuelConfig {
     pub first_touch_speed_ref: f32,
     pub first_touch_speed_weight: f32,
     pub first_touch_pressure_weight: f32,
+    /// Set W+A (C1): extra difficulty of a contact at full stretch, × stretch² (the reach to the ball's path beyond
+    /// `stance_half_width`, as a share of the rest of `control_radius`): the further he reaches the less of the foot
+    /// meets the ball and the less it stays aligned (the toe "is not possible to keep aligned" at higher impact speeds
+    /// [ANDERSEN08]). Applies to every foot contact, control and first-time kicks alike. From a physical statement, not
+    /// from event counts: a player at the pivot skill at full stretch cushions a firm 12 m/s ground pass about 1 time
+    /// in 10 (1.4).
+    pub first_touch_stretch_weight: f32,
     /// Heavy touch: the ball comes off at this fraction of its speed relative to the player when the touch only just
     /// failed …
     pub heavy_touch_rebound_min: f32,
-    /// A failed touch on an opponents' ball faster than `deflect_min_speed` (m/s, relative) is a deflection keeping
-    /// `deflect_keep` (range) of its speed, instead of a heavy touch.
-    pub deflect_min_speed: f32,
-    pub deflect_keep: [f32; 2],
+    /// Set C (C3): restitution (range) of a ball glancing off a foot or shin: foot–ball impacts in kicking 0.48–0.67
+    /// [ANDERSEN08] (0.50–0.65 in the earlier studies it cites).
+    pub deflect_restitution: [f32; 2],
     /// … rising by up to this much for the worst touches (cubic in how badly it failed).
     pub heavy_touch_rebound_range: f32,
     /// Slope of the save logistic in the shot's difficulty …
@@ -1387,9 +1401,9 @@ impl Default for DuelConfig {
             first_touch_speed_ref: 20.0,
             first_touch_speed_weight: 0.6,
             first_touch_pressure_weight: 0.25,
+            first_touch_stretch_weight: 1.4,
             heavy_touch_rebound_min: 0.06,
-            deflect_min_speed: 10.0,
-            deflect_keep: [0.3, 0.7],
+            deflect_restitution: [0.48, 0.67],
             heavy_touch_rebound_range: 0.25,
             save_slope: 4.0,
             save_skill_slope: 2.0,

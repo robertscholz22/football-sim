@@ -89,8 +89,14 @@ pub fn control_difficulty(speed: f32, height: f32, pressure: f32, cfg: &DuelConf
 
 /// Probability of a clean controlling touch.
 pub fn control_prob(a: &Attributes, confidence: f32, energy: f32, speed: f32, height: f32, pressure: f32, cfg: &DuelConfig) -> f32 {
+    control_prob_at(a, confidence, energy, control_difficulty(speed, height, pressure, cfg), cfg)
+}
+
+/// Probability of a clean contact on a ball of the given difficulty (`control_difficulty`, plus the stretch for a
+/// contact away from his body).
+pub fn control_prob_at(a: &Attributes, confidence: f32, energy: f32, difficulty: f32, cfg: &DuelConfig) -> f32 {
     logistic(
-        cfg.first_touch_slope * (cfg.skill_pivot - control_difficulty(speed, height, pressure, cfg) + cfg.first_touch_offset)
+        cfg.first_touch_slope * (cfg.skill_pivot - difficulty + cfg.first_touch_offset)
             + cfg.first_touch_skill_slope * (control_skill(a, confidence, energy) - cfg.skill_pivot),
     )
 }

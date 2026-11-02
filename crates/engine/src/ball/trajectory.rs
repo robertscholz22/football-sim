@@ -25,8 +25,10 @@ pub struct Trajectory {
     pub first_bounce: Option<TrajSample>,
     /// The ball leaves the pitch or enters a goal at this time.
     pub exit_time: Option<f32>,
-    /// The exit is into a goal (the shot is on target if nobody touches it).
+    /// The exit is into a goal (the shot is on target if nobody touches it) …
     pub on_goal: bool,
+    /// … at this end (sign of the goal line's x).
+    pub goal_x_sign: f32,
 }
 
 impl Trajectory {
@@ -96,7 +98,10 @@ pub fn predict(start: &Ball, p: &BallParams, horizon: f32, sample_dt: f32) -> Tr
                 }
                 BallEvent::Goal { .. } | BallEvent::Out { .. } if traj.exit_time.is_none() => {
                     traj.exit_time = Some(t);
-                    traj.on_goal = matches!(e, BallEvent::Goal { .. });
+                    if let &BallEvent::Goal { world_x_sign } = e {
+                        traj.on_goal = true;
+                        traj.goal_x_sign = world_x_sign;
+                    }
                 }
                 _ => {}
             }
